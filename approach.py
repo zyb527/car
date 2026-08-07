@@ -19,8 +19,6 @@ def _legacy_config(config):
         "stop_y_threshold": config.STOP_Y_THRESHOLD_PX,
         "approach_speed": config.APPROACH_SPEED_CM_S,
         "approach_y_slow_start": config.APPROACH_Y_SLOW_START_PX,
-        "x_dead_band": config.X_DEAD_BAND_PX,
-        "max_lateral_speed": config.MAX_LATERAL_SPEED_CM_S,
         "slow_forward_x_error": config.SLOW_FORWARD_X_ERROR_PX,
         "min_approach_speed": config.MIN_APPROACH_SPEED_CM_S,
         "approach_tof_profile_enabled": True,
@@ -31,14 +29,6 @@ def _legacy_config(config):
         ),
         "orbit_min_radius_mm": config.ORBIT_MIN_RADIUS_MM,
     }
-
-
-def calc_lateral_correction(target_x, x_pid, dt, config):
-    error_x = target_x - config["target_center_x"]
-    if abs(error_x) <= config["x_dead_band"]:
-        x_pid.reset()
-        return 0.0
-    return x_pid.update(error_x, dt)
 
 
 def calc_visual_approach_vy(
@@ -118,7 +108,6 @@ def calc_tof_approach_vy(
 def calc_approach_command(
     target_x,
     target_y,
-    x_pid,
     approach_w_pid,
     dt,
     config,
@@ -131,7 +120,6 @@ def calc_approach_command(
         target_stop_dist = config["stop_distance_mm"]
 
     error_x = target_x - config["target_center_x"]
-    vx = calc_lateral_correction(target_x, x_pid, dt, config)
     vy = calc_visual_approach_vy(
         error_x,
         target_y,
@@ -146,7 +134,7 @@ def calc_approach_command(
     )
     vy = min(vy, vy_tof)
     w = approach_w_pid.update(-error_x, dt)
-    return vx, vy, w
+    return 0.0, vy, w
 
 
 def resolve_orbit_radius_mm(measured_distance_mm, config):
@@ -163,13 +151,6 @@ class ApproachController:
     def __init__(self, config):
         self.config = config
         self.legacy_config = _legacy_config(config)
-        self.x_pid = PIDController(
-            config.PID_X_KP,
-            config.PID_X_KI,
-            config.PID_X_KD,
-            output_limit=config.MAX_LATERAL_SPEED_CM_S,
-            integral_limit=config.PID_X_I_LIMIT,
-        )
         self.approach_w_pid = PIDController(
             config.PID_APPROACH_W_KP,
             config.PID_APPROACH_W_KI,
@@ -180,7 +161,6 @@ class ApproachController:
         self.reset()
 
     def reset(self):
-        self.x_pid.reset()
         self.approach_w_pid.reset()
         self.loss_elapsed_s = 0.0
         self.align_elapsed_s = 0.0
@@ -267,7 +247,7 @@ class ApproachController:
             if obj_class == 3
             else self.config.STOP_DISTANCE_MM
         )
-        # 默认保留原行为：ball(class 3) 的 y>180 可提前结束靠近。
+        # ball(class 3) 的 y>120 可提前结束靠近。
         # 独立测试可通过 VISUAL_STOP_ENABLED=False 关闭此规则，只以 ToF 交接。
         visual_stop_enabled = getattr(
             self.config, "VISUAL_STOP_ENABLED", True
@@ -275,7 +255,7 @@ class ApproachController:
         visual_stop_thresholds = getattr(
             self.config,
             "VISUAL_STOP_Y_THRESHOLD_BY_CLASS",
-            {3: 180.0},
+            {3: 120.0},
         )
         visual_stop_y = visual_stop_thresholds.get(obj_class)
         visual_reached = (
@@ -336,7 +316,6 @@ class ApproachController:
         command = calc_approach_command(
             target_x,
             target_y,
-            self.x_pid,
             self.approach_w_pid,
             dt,
             self.legacy_config,

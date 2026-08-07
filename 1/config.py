@@ -60,15 +60,15 @@ FRONT_RESPONSE_POINTS_PLANE = (
     (0.5, 5.0),
     (2,15),
     (3,25),
-    (10.0, 70.0),
+    (10.0, 65.0),
 )
 # 前后误差在收敛到目标的中心区域时，逐步减弱 P，避免超调；D 置零则为纯 P。
 FRONT_OPENING_D_GAIN = 0.0
-FRONT_CLOSING_D_GAIN = 0.3525
+FRONT_CLOSING_D_GAIN = 0.36
 FRONT_RATE_DEADBAND_PLANE = 8.0
 LATERAL_RATE_DEADBAND_PLANE = 5.0
 MAX_FRONT_D_TRIM = 30.0
-FRONT_CLOSING_P_SCALE = 1
+FRONT_CLOSING_P_SCALE = 0.8
 FRONT_CLOSING_P_BAND_PLANE = 5.0
 
 # 横向误差来自摄像头输出的 IPM 平面右灯坐标，不再使用灯距反比例估算。
@@ -105,8 +105,8 @@ VY_SIGN = 1.0
 W_SIGN = 1.0
 
 # 视觉闭环只负责队形误差修正；中心附近力度由分段节点保证不变。
-MAX_VX = 120.0
-MAX_VY = 120.0
+MAX_VX = 100.0
+MAX_VY = 100.0
 MAX_W = 3.0
 
 # 有无线前馈时，视觉只修正编队残差，不再承担全部跟随速度。保持纯视觉
@@ -116,7 +116,7 @@ FEEDFORWARD_VISUAL_VY_SCALE = 1.0
 FEEDFORWARD_VISUAL_W_SCALE = 0.5
 FEEDFORWARD_VISUAL_MAX_VX = 80.0
 FEEDFORWARD_VISUAL_MAX_VY = 80.0
-FEEDFORWARD_VISUAL_MAX_W = 1.5
+FEEDFORWARD_VISUAL_MAX_W = 3
 # 每个新视觉测量吸收目标修正的比例；越小越平缓，但纠偏也越慢。
 # 1.0 表示不做逐帧低通；保留无线模式专用比例、限幅和模式切换渐变。
 FEEDFORWARD_VISUAL_FILTER_ALPHA = 1.0
@@ -184,5 +184,6 @@ OFFLINE_LOG_PATH = "assistant_follow_log.txt"
 OFFLINE_LOG_PERIOD_MS = 200
 OFFLINE_LOG_FLUSH_MS = 1000
 OFFLINE_LOG_MAX_BYTES = 1024 * 1024
+
 
 

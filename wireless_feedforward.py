@@ -3,6 +3,9 @@
 协议沿用 car141929 的 0x5A 0xA5 帧头、float32 小端数据和
 0x0D 0x0A 帧尾，并使用旧双车方案已经验证过的 9-float 扩展帧。
 vx、vy 的单位为 cm/s，w 的单位为 rad/s。
+
+正式主流程融合电机 S 曲线目标指令与实测速度：实测 vx、vy 来自编码器
+里程计，实测 w 来自 IMU。保留纯目标和纯实测接口，供独立调试使用。
 """
 
 import struct
@@ -153,6 +156,93 @@ class FeedforwardSender:
         ):
             return None
         return self.send_motor_command(motor, straight_without_w=straight_without_w)
+
+    def send_measured_motion(self, odometry, straight_without_w=False):
+        """发送编码器实测平移速度和 IMU 实测角速度。"""
+        state = odometry.get_state()
+        command = (
+            float(state["body_vx_cm_s"]),
+            float(state["body_vy_cm_s"]),
+            float(state["yaw_rate_rad_s"]),
+        )
+        if straight_without_w:
+            command = (command[0], command[1], 0.0)
+        self.send(command[0], command[1], command[2])
+        return command
+
+    def send_measured_motion_if_due(
+        self,
+        odometry,
+        now_ms=None,
+        straight_without_w=False,
+    ):
+        """达到发送周期时发送一帧实测车体速度。"""
+        if now_ms is None:
+            now_ms = _ticks_ms()
+        if (
+            self.last_tx_ms is not None
+            and _ticks_diff(now_ms, self.last_tx_ms) < self.period_ms
+        ):
+            return None
+        return self.send_measured_motion(
+            odometry,
+            straight_without_w=straight_without_w,
+        )
+
+    def send_blended_motion(
+        self,
+        motor,
+        odometry,
+        measured_weight,
+        straight_without_w=False,
+    ):
+        """融合 S 曲线目标指令和编码器/IMU 实测速度后发送。"""
+        measured_weight = float(measured_weight)
+        if not 0.0 <= measured_weight <= 1.0:
+            raise ValueError("measured feedforward weight must be within 0..1")
+        target_weight = 1.0 - measured_weight
+        if hasattr(motor, "get_limited_physical_command"):
+            target = motor.get_limited_physical_command()
+        else:
+            target = motor.get_limited_command()
+        state = odometry.get_state()
+        measured = (
+            float(state["body_vx_cm_s"]),
+            float(state["body_vy_cm_s"]),
+            float(state["yaw_rate_rad_s"]),
+        )
+        command = tuple(
+            target_weight * float(target[index])
+            + measured_weight * measured[index]
+            for index in range(3)
+        )
+        if straight_without_w:
+            command = (command[0], command[1], 0.0)
+        self.send(command[0], command[1], command[2])
+        return command
+
+    def send_blended_motion_if_due(
+        self,
+        motor,
+        odometry,
+        measured_weight,
+        now_ms=None,
+        straight_without_w=False,
+    ):
+        """达到发送周期时发送一帧目标与实测的融合速度。"""
+        if now_ms is None:
+            now_ms = _ticks_ms()
+        if (
+            self.last_tx_ms is not None
+            and _ticks_diff(now_ms, self.last_tx_ms) < self.period_ms
+        ):
+            return None
+        return self.send_blended_motion(
+            motor,
+            odometry,
+            measured_weight,
+            straight_without_w=straight_without_w,
+        )
 
     def send_zero_frames(self, count=5):
         """连续发送安全零速度帧，用于启动和退出交接。"""

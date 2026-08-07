@@ -53,6 +53,8 @@ class OdometryConfig:
         self.calibration_wait_ms = 1000
         self.calibration_samples = 500
         self.calibration_period_ms = 2
+        self.calibration_attempts = 3
+        self.calibration_retry_wait_ms = 250
         self.calibration_accel_min_g = 0.75
         self.calibration_accel_max_g = 1.25
         self.calibration_gyro_std_max_raw = 12.0
@@ -252,76 +254,94 @@ class OdometrySystem:
         _sleep_ms(self.config.calibration_wait_ms)
         count = int(self.config.calibration_samples)
         if count <= 0:
+            self.calibration_error = "calibration_samples must be positive"
             return False
-
-        accel_sum = [0.0, 0.0, 0.0]
-        gyro_sum = [0.0, 0.0, 0.0]
-        gyro_square_sum = [0.0, 0.0, 0.0]
-        accel_norm_sum = 0.0
-        for _ in range(count):
-            sample = self.imu.read()
-            for axis in range(3):
-                accel_sum[axis] += sample[axis]
-                gyro_sum[axis] += sample[axis + 3]
-                gyro_square_sum[axis] += sample[axis + 3] * sample[axis + 3]
-            accel_norm_sum += math.sqrt(
-                sample[0] * sample[0]
-                + sample[1] * sample[1]
-                + sample[2] * sample[2]
-            )
-            _sleep_ms(self.config.calibration_period_ms)
-
+        attempts = max(1, int(self.config.calibration_attempts))
         inverse_count = 1.0 / float(count)
-        mean_accel = [
-            accel_sum[0] * inverse_count,
-            accel_sum[1] * inverse_count,
-            accel_sum[2] * inverse_count,
-        ]
-        self.gyro_bias_raw = [
-            gyro_sum[0] * inverse_count,
-            gyro_sum[1] * inverse_count,
-            gyro_sum[2] * inverse_count,
-        ]
-        self.gravity_reference_raw = accel_norm_sum * inverse_count
 
-        largest_gyro_std = 0.0
-        for axis in range(3):
-            variance = (
-                gyro_square_sum[axis] * inverse_count
-                - self.gyro_bias_raw[axis] * self.gyro_bias_raw[axis]
+        for attempt_index in range(attempts):
+            if attempt_index > 0:
+                _sleep_ms(self.config.calibration_retry_wait_ms)
+
+            accel_sum = [0.0, 0.0, 0.0]
+            gyro_sum = [0.0, 0.0, 0.0]
+            gyro_square_sum = [0.0, 0.0, 0.0]
+            accel_norm_sum = 0.0
+            for _ in range(count):
+                sample = self.imu.read()
+                for axis in range(3):
+                    accel_sum[axis] += sample[axis]
+                    gyro_sum[axis] += sample[axis + 3]
+                    gyro_square_sum[axis] += sample[axis + 3] * sample[axis + 3]
+                accel_norm_sum += math.sqrt(
+                    sample[0] * sample[0]
+                    + sample[1] * sample[1]
+                    + sample[2] * sample[2]
+                )
+                _sleep_ms(self.config.calibration_period_ms)
+
+            mean_accel = [
+                accel_sum[0] * inverse_count,
+                accel_sum[1] * inverse_count,
+                accel_sum[2] * inverse_count,
+            ]
+            gyro_bias_raw = [
+                gyro_sum[0] * inverse_count,
+                gyro_sum[1] * inverse_count,
+                gyro_sum[2] * inverse_count,
+            ]
+            gravity_reference_raw = accel_norm_sum * inverse_count
+
+            largest_gyro_std = 0.0
+            for axis in range(3):
+                variance = (
+                    gyro_square_sum[axis] * inverse_count
+                    - gyro_bias_raw[axis] * gyro_bias_raw[axis]
+                )
+                largest_gyro_std = max(
+                    largest_gyro_std, math.sqrt(max(variance, 0.0))
+                )
+
+            gravity_g = gravity_reference_raw / self.config.acc_lsb_per_g
+            if (
+                gravity_g < self.config.calibration_accel_min_g
+                or gravity_g > self.config.calibration_accel_max_g
+                or largest_gyro_std > self.config.calibration_gyro_std_max_raw
+            ):
+                self.calibration_error = (
+                    "keep the car still; attempt={}/{}, gravity_g={:.3f}, "
+                    "gyro_std_raw={:.2f}"
+                ).format(
+                    attempt_index + 1,
+                    attempts,
+                    gravity_g,
+                    largest_gyro_std,
+                )
+                continue
+
+            body_accel = self._map_raw_vector(mean_accel)
+            if not self.ahrs.initialize_from_accel(
+                body_accel[0], body_accel[1], body_accel[2]
+            ):
+                self.calibration_error = (
+                    "invalid accelerometer direction; attempt={}/{}"
+                ).format(attempt_index + 1, attempts)
+                continue
+
+            self.gyro_bias_raw = gyro_bias_raw
+            self.gravity_reference_raw = gravity_reference_raw
+            self.calibrated = True
+            self.calibration_error = None
+            self.static_time_s = 0.0
+            _, _, raw_heading = self.ahrs.attitude()
+            self.heading_offset_rad = normalize_angle(
+                self.heading_rad - raw_heading
             )
-            largest_gyro_std = max(
-                largest_gyro_std, math.sqrt(max(variance, 0.0))
-            )
+            self._publish_attitude()
+            return True
 
-        gravity_g = self.gravity_reference_raw / self.config.acc_lsb_per_g
-        if (
-            gravity_g < self.config.calibration_accel_min_g
-            or gravity_g > self.config.calibration_accel_max_g
-            or largest_gyro_std > self.config.calibration_gyro_std_max_raw
-        ):
-            self.calibrated = False
-            self.calibration_error = (
-                "keep the car still; gravity_g={:.3f}, gyro_std_raw={:.2f}"
-            ).format(gravity_g, largest_gyro_std)
-            return False
-
-        body_accel = self._map_raw_vector(mean_accel)
-        if not self.ahrs.initialize_from_accel(
-            body_accel[0], body_accel[1], body_accel[2]
-        ):
-            self.calibrated = False
-            self.calibration_error = "invalid accelerometer direction"
-            return False
-
-        self.calibrated = True
-        self.static_time_s = 0.0
-        _, _, raw_heading = self.ahrs.attitude()
-        self.heading_offset_rad = normalize_angle(
-            self.heading_rad - raw_heading
-        )
-        self._publish_attitude()
-        return True
+        self.calibrated = False
+        return False
 
     def update_imu_from_buffer(self, dt, stationary=False):
         if self.imu is None:
@@ -545,4 +565,3 @@ class OdometrySystem:
             self.gyro_bias_raw[axis] += (
                 sample[axis + 3] - self.gyro_bias_raw[axis]
             ) * alpha
-

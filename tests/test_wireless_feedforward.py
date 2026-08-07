@@ -69,6 +69,15 @@ class FakePhysicalMotor:
         return 8.0, 9.0, -0.4
 
 
+class FakeOdometry:
+    def get_state(self):
+        return {
+            "body_vx_cm_s": 6.5,
+            "body_vy_cm_s": -7.25,
+            "yaw_rate_rad_s": 0.35,
+        }
+
+
 class ProtocolTests(unittest.TestCase):
     def test_frame_round_trip(self):
         frame = feedforward.encode_feedforward(12.5, -7.25, 0.42, 17)
@@ -116,6 +125,96 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(command, (8.0, 9.0, -0.4))
         decoded = feedforward.decode_feedforward(wireless.sent[0])
         self.assertAlmostEqual(decoded["w"], -0.4)
+
+    def test_sender_uses_encoder_translation_and_imu_yaw_rate(self):
+        wireless = FakeWireless()
+        sender = feedforward.FeedforwardSender(wireless=wireless)
+
+        command = sender.send_measured_motion(FakeOdometry())
+
+        self.assertEqual(command, (6.5, -7.25, 0.35))
+        decoded = feedforward.decode_feedforward(wireless.sent[0])
+        self.assertAlmostEqual(decoded["vx"], 6.5)
+        self.assertAlmostEqual(decoded["vy"], -7.25)
+        self.assertAlmostEqual(decoded["w"], 0.35)
+
+    def test_measured_motion_can_suppress_yaw_rate_only(self):
+        wireless = FakeWireless()
+        sender = feedforward.FeedforwardSender(wireless=wireless)
+
+        command = sender.send_measured_motion(
+            FakeOdometry(),
+            straight_without_w=True,
+        )
+
+        self.assertEqual(command, (6.5, -7.25, 0.0))
+        decoded = feedforward.decode_feedforward(wireless.sent[0])
+        self.assertEqual(
+            (decoded["vx"], decoded["vy"], decoded["w"]),
+            (6.5, -7.25, 0.0),
+        )
+
+    def test_measured_motion_respects_send_period(self):
+        wireless = FakeWireless()
+        sender = feedforward.FeedforwardSender(
+            wireless=wireless,
+            period_ms=10,
+        )
+        sender.last_tx_ms = 100
+
+        self.assertIsNone(
+            sender.send_measured_motion_if_due(FakeOdometry(), now_ms=109)
+        )
+        self.assertEqual(
+            sender.send_measured_motion_if_due(FakeOdometry(), now_ms=110),
+            (6.5, -7.25, 0.35),
+        )
+        self.assertEqual(len(wireless.sent), 1)
+
+    def test_blended_motion_uses_configured_measured_weight(self):
+        wireless = FakeWireless()
+        sender = feedforward.FeedforwardSender(wireless=wireless)
+
+        command = sender.send_blended_motion(
+            FakePhysicalMotor(),
+            FakeOdometry(),
+            measured_weight=0.25,
+        )
+
+        expected = (7.625, 4.9375, -0.2125)
+        for actual, value in zip(command, expected):
+            self.assertAlmostEqual(actual, value)
+        decoded = feedforward.decode_feedforward(wireless.sent[0])
+        for actual, value in zip(
+            (decoded["vx"], decoded["vy"], decoded["w"]),
+            expected,
+        ):
+            self.assertAlmostEqual(actual, value)
+
+    def test_blended_motion_suppresses_w_after_blending(self):
+        wireless = FakeWireless()
+        sender = feedforward.FeedforwardSender(wireless=wireless)
+
+        command = sender.send_blended_motion(
+            FakePhysicalMotor(),
+            FakeOdometry(),
+            measured_weight=0.25,
+            straight_without_w=True,
+        )
+
+        self.assertEqual(command, (7.625, 4.9375, 0.0))
+
+    def test_blended_motion_rejects_weight_outside_unit_interval(self):
+        sender = feedforward.FeedforwardSender(wireless=FakeWireless())
+
+        for value in (-0.01, 1.01, math.nan):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    sender.send_blended_motion(
+                        FakePhysicalMotor(),
+                        FakeOdometry(),
+                        measured_weight=value,
+                    )
 
     def test_main_and_assistant_protocol_files_are_interoperable(self):
         main_frame = feedforward.encode_feedforward(1.0, 2.0, 0.3, 7)
@@ -195,6 +294,10 @@ class MainTestSequenceTests(unittest.TestCase):
 
     def test_sequence_and_signs_match_body_coordinate_convention(self):
         commands = [stage[1] for stage in main_test.TEST_STAGES]
+        slow_turn_boundary_w = (
+            NavigationConfig.TURN_SLOW_KP
+            * NavigationConfig.TURN_MID_ERROR_RAD
+        )
         self.assertEqual(
             commands,
             [
@@ -202,8 +305,8 @@ class MainTestSequenceTests(unittest.TestCase):
                 (0.0, -NavigationConfig.PATH_SLOW_SPEED_CM_S, 0.0),
                 (NavigationConfig.PATH_SLOW_SPEED_CM_S, 0.0, 0.0),
                 (-NavigationConfig.PATH_SLOW_SPEED_CM_S, 0.0, 0.0),
-                (0.0, 0.0, -NavigationConfig.TURN_SLOW_W_RAD_S),
-                (0.0, 0.0, NavigationConfig.TURN_SLOW_W_RAD_S),
+                (0.0, 0.0, -slow_turn_boundary_w),
+                (0.0, 0.0, slow_turn_boundary_w),
             ],
         )
 

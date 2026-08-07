@@ -37,8 +37,8 @@ if LCD_DISPLAY_ENABLED:
         print("LCD Init failed:", e)
 
 # ================= 业务变量 =================
-yellow_line_enabled = False
-enable_car_brick = False
+yellow_line_enabled = True
+enable_car_brick = True
 target_class_filter = 0
 force_rescan_enabled = True
 
@@ -112,11 +112,11 @@ while True:
         if cx is not None:
             h_found_y, h_x_y, h_y_y = True, cx, cy
 
-    # 合并 hazard (如果有黄线，则优先黄线，否则砖块)
-    if h_found_y:
-        h_found, h_x, h_y, h_type = True, h_x_y, h_y_y, CLASS_ID_YELLOW
-    elif h_found_b:
+    # 合并 hazard：有效砖块优先；砖块因贴近红沙包被作废时才回退到黄线。
+    if h_found_b:
         h_found, h_x, h_y, h_type = True, h_x_b, h_y_b, h_type_b
+    elif h_found_y:
+        h_found, h_x, h_y, h_type = True, h_x_y, h_y_y, CLASS_ID_YELLOW
     else:
         h_found, h_x, h_y, h_type = False, 0.0, 0.0, 0
 

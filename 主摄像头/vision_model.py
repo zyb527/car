@@ -30,6 +30,11 @@ COLORS = {
 PRIORITY = {"redbag": 3, "bluebag": 3, "ball": 2, "brownbear": 1, "whitebear": 1}
 PRIORITY_ORDER = ["redbag", "bluebag", "ball", "brownbear", "whitebear"]
 
+# 手动屏蔽列表：只需修改本行后重新运行主摄像头程序。
+# 留空表示不屏蔽；示例：{"ball"}；多个：{"ball", "bluebag", "brick"}。
+# 可用名称："redbag"、"bluebag"、"ball"、"brownbear"、"whitebear"、"brick"。
+MANUALLY_DISABLED_LABELS = set("whitebear")  # 示例：{"ball", "bluebag"}
+
 # 锁定与追踪参数
 ACQUIRE_SCORE = 0.60
 MAINTAIN_SCORE = 0.30
@@ -40,9 +45,21 @@ POSITION_ALPHA = 0.65
 VELOCITY_ALPHA = 0.50
 HOLD_VELOCITY_DECAY = 0.85
 ASSOC_MIN_DISTANCE = 35
+# 红沙包贴着推杆时可能被模型同时误识别为砖块。若二者中心距离小于此值，
+# 忽略该帧的砖块，避免将红沙包坐标作为障碍物发送。
+BRICK_RED_BAG_REJECT_DISTANCE_PX = 25
 
 def clamp(value, low, high):
     return max(low, min(value, high))
+
+def is_brick_near_redbag(brick_blob, redbag_blob):
+    """Return True when a brick overlaps the red-bag false-positive area."""
+    if brick_blob is None or redbag_blob is None:
+        return False
+
+    dx = brick_blob['cx'] - redbag_blob['cx']
+    dy = brick_blob['cy'] - redbag_blob['cy']
+    return math.sqrt(dx * dx + dy * dy) < BRICK_RED_BAG_REJECT_DISTANCE_PX
 
 class Tracker:
     def __init__(self):
@@ -87,6 +104,8 @@ class Tracker:
                 continue
             
             mapped_name = LABELS[label_idx]
+            if mapped_name in MANUALLY_DISABLED_LABELS:
+                continue
                 
             x1 = int((obj[0] * MODEL_SIZE) / scale_ratio)
             y1 = int((obj[1] * MODEL_SIZE - offset_y) / scale_ratio)
@@ -115,6 +134,11 @@ class Tracker:
                 old = best_by_class.get(mapped_name)
                 if old is None or score > old['score']:
                     best_by_class[mapped_name] = candidate
+
+        # 红沙包贴近推杆时，模型可能在同一位置额外给出 brick。此砖块不应
+        # 进入 hazard 通道，也不应向小车发送坐标。
+        if is_brick_near_redbag(brick_blob, best_by_class.get('redbag')):
+            brick_blob = None
 
         return best_by_class, brick_blob
 
@@ -171,6 +195,13 @@ class Tracker:
             if cid == target_filter_id:
                 target_filter_name = name
                 break
+
+        # 手动变更屏蔽列表后，即使当前仍锁定该类别，也立即停止发送它的坐标。
+        if self.lock_name in MANUALLY_DISABLED_LABELS:
+            self.lock_name = None
+            self.miss_frames = 0
+            self.pending_switch_name = None
+            self.pending_switch_frames = 0
                 
         if target_filter_id != 0 and target_filter_name is None:
             self.lock_name = None

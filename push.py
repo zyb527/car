@@ -287,7 +287,7 @@ class PushController:
         if hazard_data is False:
             return MotionStep.stop("push_hazard_error", failed=True)
 
-        # 黄线判断：增加 y > 100 阈值，并加入 1 秒延迟
+        # 黄线判断：命中后按配置延迟一段时间再硬停。
         if (
             hazard_data
             and hazard_data["found"]
@@ -299,7 +299,9 @@ class PushController:
                 self._transition_to(State.YELLOW_DELAY)
 
         if self.state == State.YELLOW_DELAY:
-            if self.time_in_state >= 0.3:
+            if self.time_in_state >= _cfg(
+                self.config, "YELLOW_STOP_DELAY_S", 0.3
+            ):
                 self._transition_to(State.YELLOW_STOP)
                 self.active = False
                 return MotionStep.stop(

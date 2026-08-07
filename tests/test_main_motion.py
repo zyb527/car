@@ -98,27 +98,83 @@ class HeadingTurnTests(unittest.TestCase):
         result = controller.step(math.radians(170.0), 0.0, 0.02)
         self.assertGreater(result.command[2], 0.0)
 
-    def test_turn_completes_only_after_stable_time(self):
+    def test_turn_completes_immediately_when_angle_and_rate_are_in_tolerance(self):
         controller = HeadingTurnController(NavigationConfig)
         controller.start(1.0)
-        steps = int(
-            math.ceil(
-                NavigationConfig.TURN_STABLE_TIME_S / 0.02
-            )
-        )
-        result = None
-        for _ in range(steps):
-            result = controller.step(1.0, 0.0, 0.02)
+        result = controller.step(1.0, 0.0, 0.02)
         self.assertTrue(result.done)
         self.assertEqual(result.command, (0.0, 0.0, 0.0))
 
+    def test_turn_waits_while_yaw_rate_is_above_tolerance(self):
+        controller = HeadingTurnController(NavigationConfig)
+        controller.start(1.0)
+        result = controller.step(
+            1.0,
+            NavigationConfig.TURN_YAW_RATE_TOLERANCE_RAD_S + 0.01,
+            0.02,
+        )
+        self.assertFalse(result.done)
+
+    def test_slow_turn_suppresses_wireless_angular_feedforward(self):
+        controller = HeadingTurnController(NavigationConfig)
+        controller.start(math.radians(4.5))
+
+        result = controller.step(0.0, 0.0, 0.02)
+
+        self.assertEqual(result.debug.get("profile"), "slow")
+        self.assertNotEqual(result.command[2], 0.0)
+        self.assertTrue(result.debug.get("suppress_feedforward_w"))
+
+    def test_slow_turn_speed_is_proportional_to_heading_error(self):
+        controller = HeadingTurnController(NavigationConfig)
+        controller.start(math.radians(4.5))
+
+        result = controller.step(0.0, 0.0, 0.02)
+
+        self.assertAlmostEqual(
+            result.command[2],
+            NavigationConfig.TURN_SLOW_KP * math.radians(4.5),
+        )
+
+    def test_mid_turn_keeps_wireless_angular_feedforward(self):
+        controller = HeadingTurnController(NavigationConfig)
+        controller.start(math.radians(6.0))
+
+        result = controller.step(0.0, 0.0, 0.02)
+
+        self.assertEqual(result.debug.get("profile"), "mid")
+        self.assertFalse(result.debug.get("suppress_feedforward_w"))
+
+    def test_mid_turn_speed_is_proportional_below_its_limit(self):
+        controller = HeadingTurnController(NavigationConfig)
+        controller.start(math.radians(10.0))
+
+        result = controller.step(0.0, 0.0, 0.02)
+
+        self.assertEqual(result.debug.get("profile"), "mid")
+        self.assertAlmostEqual(
+            result.command[2],
+            NavigationConfig.TURN_MID_KP * math.radians(10.0),
+        )
+
+    def test_mid_turn_is_limited_to_1_5_rad_s_at_25_degrees(self):
+        controller = HeadingTurnController(NavigationConfig)
+        controller.start(math.radians(25.0))
+
+        result = controller.step(0.0, 0.0, 0.02)
+
+        self.assertEqual(result.debug.get("profile"), "mid")
+        self.assertAlmostEqual(
+            result.command[2], NavigationConfig.TURN_MID_W_RAD_S
+        )
+
 
 class ApproachTests(unittest.TestCase):
-    def test_target_right_generates_right_translation_and_clockwise_yaw(self):
+    def test_target_right_uses_clockwise_yaw_without_lateral_translation(self):
         controller = ApproachController(ApproachConfig)
         result = controller.step(target(x=190.0, y=100.0), 400.0)
 
-        self.assertGreater(result.command[0], 0.0)
+        self.assertEqual(result.command[0], 0.0)
         self.assertGreater(result.command[1], 0.0)
         self.assertLess(result.command[2], 0.0)
 
@@ -384,9 +440,7 @@ class MigratedParameterTests(unittest.TestCase):
     def test_approach_uses_half_scale_car141929_linear_parameters(self):
         self.assertEqual(ApproachConfig.APPROACH_SPEED_CM_S, 280.0)
         self.assertEqual(ApproachConfig.MIN_APPROACH_SPEED_CM_S, 30.0)
-        self.assertEqual(ApproachConfig.MAX_LATERAL_SPEED_CM_S, 60.0)
-        self.assertEqual(ApproachConfig.PID_X_KP, 0.335)
-        self.assertEqual(ApproachConfig.PID_APPROACH_W_KP, 0.0048)
+        self.assertEqual(ApproachConfig.PID_APPROACH_W_KP, 0.012)
 
     def test_orbit_contains_original_pid_set_and_scaled_linear_limits(self):
         self.assertEqual(OrbitConfig.ORBIT_MAX_VX_CM_S, 380.0)
@@ -410,8 +464,9 @@ class MigratedParameterTests(unittest.TestCase):
     def test_navigation_angular_speeds_are_doubled(self):
         self.assertEqual(NavigationConfig.TRANSLATE_MAX_W_RAD_S, 2.70)
         self.assertEqual(NavigationConfig.TURN_FAST_W_RAD_S, 3.60)
-        self.assertEqual(NavigationConfig.TURN_MID_W_RAD_S, 2.00)
-        self.assertEqual(NavigationConfig.TURN_SLOW_W_RAD_S, 0.84)
+        self.assertEqual(NavigationConfig.TURN_MID_KP, 5.0)
+        self.assertEqual(NavigationConfig.TURN_MID_W_RAD_S, 1.50)
+        self.assertEqual(NavigationConfig.TURN_SLOW_KP, 4.0)
 
 
 if __name__ == "__main__":

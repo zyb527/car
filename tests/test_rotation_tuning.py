@@ -36,15 +36,15 @@ from wireless_feedforward import FeedforwardSender
 
 # ================= 可以在这里临时修改自转相关参数进行测试 =================
 
-NavigationConfig.TURN_FAST_ERROR_RAD = math.radians(30.0) # 快速自转误差门限
+NavigationConfig.TURN_FAST_ERROR_RAD = math.radians(25.0) # 快速自转误差门限
 NavigationConfig.TURN_MID_ERROR_RAD = math.radians(5.0)   # 中速自转误差门限
-NavigationConfig.TURN_FAST_W_RAD_S = 5.0                # 快速自转角速度
-NavigationConfig.TURN_MID_W_RAD_S = 2.00                  # 中速自转角速度
-NavigationConfig.TURN_SLOW_W_RAD_S = 0.4                  # 慢速自转角速度(微调)
+NavigationConfig.TURN_FAST_W_RAD_S = 3.14                # 快速自转角速度
+NavigationConfig.TURN_MID_KP = 5.0                        # 中速段 P 增益
+NavigationConfig.TURN_MID_W_RAD_S = 1.50                  # 中速段 P 输出上限
+NavigationConfig.TURN_SLOW_KP = 4.0                       # 慢速段 P 增益
 NavigationConfig.TURN_DAMPING_KD = 0.10                   # 阻尼系数（角速度抑制）
 NavigationConfig.TURN_TOLERANCE_RAD = math.radians(4.0)   # 角度容差门限
 NavigationConfig.TURN_YAW_RATE_TOLERANCE_RAD_S = 0.12     # 停稳的角速度门限
-NavigationConfig.TURN_STABLE_TIME_S = 0.1               # 停稳所需的持续时间
 # =====================================================================
 
 TARGET_HEADING_DEG = 180.0
@@ -64,10 +64,12 @@ def main():
     print("=== 启动原地自转 (HeadingTurnController) 调参测试 ===")
     
     led_c4 = None
+    turn_succeeded = False
     if Pin:
         try:
             led_c4 = Pin("C4", Pin.OUT)
-            led_c4.value(0)
+            # C4 指示灯为低电平点亮；测试完成前保持熄灭。
+            led_c4.value(1)
         except Exception as e:
             print("初始化 C4 灯失败:", e)
 
@@ -85,6 +87,7 @@ def main():
         if MissionConfig.FEEDFORWARD_ENABLED:
             sender = FeedforwardSender(period_ms=MissionConfig.FEEDFORWARD_TX_PERIOD_MS)
         
+        print("正在标定 IMU，请保持车辆静止；若被碰撞会自动重新采样...")
         motor.start()
         motor.hard_stop()
         
@@ -99,6 +102,7 @@ def main():
         
         start_time = _ticks_ms()
         last_control_ms = start_time
+        suppress_feedforward_w = False
         
         print("开始旋转测试，请在 Thonny 绘图器中查看波形")
         # 打印表头（用于绘图器的列名，按顺序分别对应数据）
@@ -125,6 +129,9 @@ def main():
                 
                 # 2. 调用旋转控制器
                 result = turn_controller.step(current_heading_rad, current_yaw_rate, dt)
+                suppress_feedforward_w = bool(
+                    result.debug.get("suppress_feedforward_w", False)
+                )
                 
                 # 3. 发送给电机 (兼容旧版 motor.mpy 固件)
                 if hasattr(motor, "apply_motion_step"):
@@ -149,12 +156,17 @@ def main():
                 if result.done:
                     # 当 done 时说明判定为已经完成
                     print("测试提示: 转向已判定为完成 (done=True)")
+                    turn_succeeded = True
                     if led_c4:
-                        led_c4.value(1)
+                        led_c4.value(0)
                     break
                 
             if sender is not None:
-                sender.send_motor_command_if_due(motor, now_ms)
+                sender.send_motor_command_if_due(
+                    motor,
+                    now_ms,
+                    straight_without_w=suppress_feedforward_w,
+                )
                 
             time.sleep(0.001)
 
@@ -176,8 +188,8 @@ def main():
                 sender.send_zero_frames()
             except Exception:
                 pass
-        if led_c4:
-            led_c4.value(0)
+        if led_c4 and not turn_succeeded:
+            led_c4.value(1)
         print("停止电机输出。")
 
 if __name__ == "__main__":

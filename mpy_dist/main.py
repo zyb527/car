@@ -17,9 +17,11 @@ from main_config import (
 from garage import GarageController
 from motor import MotorSystem
 from navigation import (
-    ClockwiseTurnController,
+    ApproachLossSearchController,
+    CounterclockwiseTurnController,
     CoordinatePatrolController,
     HeadingTurnController,
+    PostPushPointSearchController,
 )
 from odometry import OdometrySystem
 from orbit import OrbitController
@@ -38,18 +40,22 @@ class MainTaskState:
     WAIT_TARGET = "WAIT_TARGET"
     # 锁定目标后，前移并横移纠偏，直到 y 超过 ORBIT_START_Y_PX。
     APPROACH = "APPROACH"
+    # Approach 丢失后的完整转圈与六点巡航动作由 navigation 控制器负责。
+    APPROACH_SEARCH = "APPROACH_SEARCH"
     # 通过切向平移、视觉 X 转向与 ToF 半径闭环绕物，直到车头到达类别目标航向。
     ORBIT = "ORBIT"
     # 最终对准稳定后，冻结航向并单车推行至黄线。
     PUSH = "PUSH"
     # 黄线首帧命中后持续硬停，再开始右转，避免 S 曲线滑过停车线。
     POST_PUSH_YELLOW_HOLD = "POST_PUSH_YELLOW_HOLD"
-    # 黄线停车后，不读取物体识别结果，强制向车体右侧旋转 180 度。
+    # 黄线停车后，不读取物体识别结果，强制向车体左侧旋转 180 度。
     POST_PUSH_TURN = "POST_PUSH_TURN"
     # 旋转完成后，先对准按类别确定的下一搜物坐标，再开始平移。
     POST_PUSH_NAV_PRETURN = "POST_PUSH_NAV_PRETURN"
     # 前往下一搜物坐标；此阶段恢复物体识别，发现物体立即进入靠近流程。
     POST_PUSH_NAVIGATE = "POST_PUSH_NAVIGATE"
+    # 返场点到达后由 navigation 控制器负责对准、等待和限距前移搜索。
+    POST_PUSH_POINT_SEARCH = "POST_PUSH_POINT_SEARCH"
     # 已按固定数量完成推行，交给新版 GarageController 执行回库。
     GARAGE = "GARAGE"
     COMPLETE = "COMPLETE"
@@ -84,7 +90,19 @@ class MainTaskController:
             NavigationConfig,
         )
         self.nav_turn = HeadingTurnController(NavigationConfig)
-        self.post_push_turn = ClockwiseTurnController(NavigationConfig)
+        self.post_push_turn = CounterclockwiseTurnController(NavigationConfig)
+        self.approach_search = ApproachLossSearchController(
+            MissionConfig.APPROACH_LOSS_SEARCH_WAYPOINTS,
+            NavigationConfig,
+            MissionConfig.APPROACH_LOSS_SEARCH_TURN_RAD,
+            MissionConfig.SEARCH_W_RAD_S,
+        )
+        self.post_push_search = PostPushPointSearchController(
+            NavigationConfig,
+            MissionConfig.POST_PUSH_POINT_WAIT_S,
+            MissionConfig.POST_PUSH_FORWARD_SPEED_CM_S,
+            MissionConfig.POST_PUSH_FORWARD_MAX_DISTANCE_CM,
+        )
         self.approach = ApproachController(ApproachConfig)
         self.orbit = OrbitController(OrbitConfig)
         self.push = PushController(PushConfig)
@@ -101,6 +119,8 @@ class MainTaskController:
         self.patrol.reset(pose[0], pose[1], 0)
         self.nav_turn.start(self.patrol.target_heading_rad(pose))
         self.post_push_turn.reset()
+        self.approach_search.reset()
+        self.post_push_search.reset()
         self.approach.reset()
         self.orbit.reset()
         self.push.reset()
@@ -112,40 +132,77 @@ class MainTaskController:
         self.pushed_object_count = 0
         self.post_push_yellow_hold_elapsed_s = 0.0
         self.post_push_waypoint = None
+        self.post_push_class_id = 0
+        self.post_push_visual_gate = None
         self.target_search_state = None
+        self.visual_target_gate_open = False
         if self.vision_receiver is not None:
             self.vision_receiver.set_yellow_line(False)
 
     def _transition(self, state):
         self.state = state
 
-    def _target_search_step(self, source_state):
-        """Rotate in place while waiting for a target to reappear.
-
-        Approach search accepts any configured target class.  Orbit search
-        deliberately keeps the existing class lock because its radius and
-        heading were frozen for that specific object.
-        """
-        entering_search = self.target_search_state != source_state
-        self.target_search_state = source_state
-        if (
-            entering_search
-            and source_state == MainTaskState.APPROACH
-            and self.vision_receiver is not None
-        ):
-            self.vision_receiver.unlock_target()
+    def _orbit_target_search_step(self):
+        """Continuously rotate in place until the locked Orbit target reappears."""
+        self.target_search_state = MainTaskState.ORBIT
         return MotionStep(
             (0.0, 0.0, float(MissionConfig.SEARCH_W_RAD_S)),
-            reason=(
-                "approach_spin_search"
-                if source_state == MainTaskState.APPROACH
-                else "orbit_spin_search"
-            ),
+            reason="orbit_spin_search",
             debug={
-                "state": source_state,
+                "state": MainTaskState.ORBIT,
                 "target_search_active": True,
             },
         )
+
+    def _clear_approach_loss_search(self):
+        self.approach_search.reset()
+
+    def _start_approach_loss_search(self, pose, yaw_rate_rad_s, dt):
+        self.target_search_state = None
+        # 能进入 Approach 说明启动视觉区域门此前已经通过；搜索期间保持
+        # 全类别视觉有效，避免人工恢复/测试重建状态时被旧启动门再次拦截。
+        self.visual_target_gate_open = True
+        self.locked_class_id = 0
+        self.target_heading_rad = None
+        if self.vision_receiver is not None:
+            self.vision_receiver.unlock_target()
+        started = self.approach_search.start(pose)
+        if started.failed:
+            return started
+        self._transition(MainTaskState.APPROACH_SEARCH)
+        return self.approach_search.step(pose, yaw_rate_rad_s, dt)
+
+    def _resume_approach_from_search(
+        self, target, target_data, pose, tof_distance_mm, yaw_rate_rad_s, dt
+    ):
+        started = self._start_target_approach(
+            target, "approach_search_target_locked_starting_approach"
+        )
+        if started.failed:
+            return started
+        return self._run_approach_controller(
+            target,
+            target_data,
+            pose,
+            tof_distance_mm,
+            yaw_rate_rad_s,
+            dt,
+        )
+
+    def _approach_loss_search_step(
+        self, target, pose, tof_distance_mm, yaw_rate_rad_s, dt
+    ):
+        target_data = self._target_event(target, pose)
+        if target_data is not None:
+            return self._resume_approach_from_search(
+                target,
+                target_data,
+                pose,
+                tof_distance_mm,
+                yaw_rate_rad_s,
+                dt,
+            )
+        return self.approach_search.step(pose, yaw_rate_rad_s, dt)
 
     def _enter_orbit(self, pose, tof_distance_mm, orbit_target_y_px):
         """接收 Approach 完成事件并切换到 Orbit。"""
@@ -159,6 +216,53 @@ class MainTaskController:
             class_id=self.locked_class_id,
         )
         self._transition(MainTaskState.ORBIT)
+
+    def _run_approach_controller(
+        self,
+        target_for_controller,
+        target_data,
+        pose,
+        tof_distance_mm,
+        yaw_rate_rad_s,
+        dt,
+    ):
+        result = self.approach.step(
+            target_for_controller,
+            tof_distance_mm,
+            dt=dt,
+        )
+        if result.done:
+            d0 = result.debug.get("orbit_radius_mm", tof_distance_mm)
+            if d0 is None:
+                return MotionStep.stop(
+                    "approach_done_without_tof", failed=True
+                )
+            entry_y = result.debug.get("orbit_target_y_px")
+            if entry_y is None and target_data is not None:
+                entry_y = target_data[1]
+            if entry_y is None:
+                return MotionStep.stop(
+                    "approach_done_without_target_y", failed=True
+                )
+            self._enter_orbit(pose, d0, entry_y)
+            return MotionStep.stop(
+                "approach_to_orbit",
+                debug={
+                    # 入轨瞬间必须绕过 S 曲线立即将前移目标清零，避免
+                    # Approach 的残余前移使真实半径小于冻结的 d0。
+                    "immediate_command": True,
+                    "state": self.state,
+                    "entry_tof_mm": self.orbit.entry_tof_mm,
+                    "control_tof_mm": self.orbit.control_tof_mm,
+                    "entry_center_radius_mm": self.orbit.entry_center_radius_mm,
+                    "orbit_center_radius_mm": self.orbit.control_center_radius_mm,
+                },
+            )
+        if result.failed and result.reason == "spin_search":
+            return self._start_approach_loss_search(
+                pose, yaw_rate_rad_s, dt
+            )
+        return result
 
     def _start_target_approach(self, target, reason):
         """Main reacts to a vision event by starting the approach controller."""
@@ -176,6 +280,8 @@ class MainTaskController:
         self.approach.reset()
         self.orbit.reset()
         self.push.reset()
+        self._clear_approach_loss_search()
+        self.post_push_search.reset()
         self.target_search_state = None
         self._transition(MainTaskState.APPROACH)
         return MotionStep.stop(
@@ -187,10 +293,12 @@ class MainTaskController:
         )
 
     def _start_post_push_turn(self, pose):
-        """黄线停车后准备右转；本状态全程忽略视觉目标。"""
+        """黄线停车后准备左转；本状态全程忽略视觉目标。"""
         self.post_push_waypoint = MissionConfig.POST_PUSH_WAYPOINT_BY_CLASS[
             self.locked_class_id
         ]
+        self.post_push_class_id = self.locked_class_id
+        self.post_push_search.reset()
         self.post_push_turn.start(pose[2])
         self._transition(MainTaskState.POST_PUSH_TURN)
 
@@ -210,7 +318,18 @@ class MainTaskController:
         self._transition(MainTaskState.GARAGE)
 
     def _start_post_push_navigation(self, pose):
-        """转完后恢复全类别识别，并准备前往本轮类别对应的搜物坐标。"""
+        """转完后设置返场视觉保护，并准备前往本轮类别对应的搜物坐标。"""
+        pushed_class_id = self.post_push_class_id
+        axis, direction, distance_cm = (
+            MissionConfig.POST_PUSH_VISUAL_GATE_BY_CLASS[pushed_class_id]
+        )
+        axis_index = 0 if axis == "x" else 1
+        self.post_push_visual_gate = {
+            "axis": axis,
+            "direction": float(direction),
+            "distance_cm": float(distance_cm),
+            "start_coordinate_cm": float(pose[axis_index]),
+        }
         self.patrol = CoordinatePatrolController(
             (self.post_push_waypoint,), NavigationConfig
         )
@@ -222,9 +341,33 @@ class MainTaskController:
             self.vision_receiver.unlock_target()
         self._transition(MainTaskState.POST_PUSH_NAV_PRETURN)
 
-    def _target_event(self, target):
+    def _post_push_visual_gate_open(self, pose):
+        """Return true once the post-push world-coordinate guard is crossed."""
+        gate = self.post_push_visual_gate
+        if gate is None:
+            return True
+        axis_index = 0 if gate["axis"] == "x" else 1
+        travelled_cm = (
+            float(pose[axis_index]) - gate["start_coordinate_cm"]
+        ) * gate["direction"]
+        if travelled_cm >= gate["distance_cm"]:
+            self.post_push_visual_gate = None
+            return True
+        return False
+
+    def _target_event(self, target, pose):
         """Return the target event produced by the vision boundary."""
         if self.vision_receiver is None:
+            return None
+        if not self.visual_target_gate_open:
+            if (
+                float(pose[0]) > MissionConfig.VISUAL_ENABLE_MIN_X_CM
+                and float(pose[1]) > MissionConfig.VISUAL_ENABLE_MIN_Y_CM
+            ):
+                self.visual_target_gate_open = True
+            else:
+                return None
+        if not self._post_push_visual_gate_open(pose):
             return None
         event = self.vision_receiver.target_event(
             target,
@@ -233,21 +376,6 @@ class MainTaskController:
         )
         if event is None:
             return None
-        return event["x"], event["y"], event["class_id"]
-
-    def _relock_approach_target(self, target):
-        """Accept any valid class during Approach search and lock it anew."""
-        if self.vision_receiver is None:
-            return None
-        event = self.vision_receiver.lock_target(
-            target, MissionConfig.TARGET_CLASS_IDS
-        )
-        if event is None:
-            return None
-        self.locked_class_id = event["class_id"]
-        self.target_heading_rad = math.radians(
-            MissionConfig.CLASS_HEADING_DEG[self.locked_class_id]
-        )
         return event["x"], event["y"], event["class_id"]
 
     def step(
@@ -289,7 +417,10 @@ class MainTaskController:
                 self._transition(MainTaskState.NAVIGATE)
                 return MotionStep.stop(
                     "navigation_heading_reached_starting_patrol",
-                    debug={"state": self.state},
+                    debug={
+                        "state": self.state,
+                        "suppress_feedforward_w": True,
+                    },
                 )
             return result
 
@@ -324,7 +455,7 @@ class MainTaskController:
                     )
                 self._start_post_push_turn(pose)
                 return MotionStep.stop(
-                    "push_yellow_hold_complete_starting_clockwise_turn",
+                    "push_yellow_hold_complete_starting_counterclockwise_turn",
                     debug={"hard_stop": True, "state": self.state},
                 )
             return MotionStep.stop(
@@ -343,7 +474,7 @@ class MainTaskController:
             if result.done:
                 self._start_post_push_navigation(pose)
                 return MotionStep.stop(
-                    "clockwise_180_complete_starting_navigation",
+                    "counterclockwise_180_complete_starting_navigation",
                     debug={
                         "hard_stop": True,
                         "state": self.state,
@@ -357,8 +488,9 @@ class MainTaskController:
         if self.state in (
             MainTaskState.POST_PUSH_NAV_PRETURN,
             MainTaskState.POST_PUSH_NAVIGATE,
+            MainTaskState.POST_PUSH_POINT_SEARCH,
         ):
-            target_data = self._target_event(target)
+            target_data = self._target_event(target, pose)
             if target_data is not None:
                 return self._start_target_approach(
                     target, "post_push_target_locked_starting_approach"
@@ -371,7 +503,28 @@ class MainTaskController:
                     self._transition(MainTaskState.POST_PUSH_NAVIGATE)
                     return MotionStep.stop(
                         "post_push_navigation_heading_reached_starting_patrol",
-                        debug={"state": self.state},
+                        debug={
+                            "state": self.state,
+                            "suppress_feedforward_w": True,
+                        },
+                    )
+                return result
+
+            if self.state == MainTaskState.POST_PUSH_POINT_SEARCH:
+                result = self.post_push_search.step(
+                    pose, yaw_rate_rad_s, dt
+                )
+                if result.done:
+                    self._transition(MainTaskState.WAIT_TARGET)
+                    return MotionStep.stop(
+                        "post_push_forward_distance_complete_waiting_for_target",
+                        debug={
+                            "state": self.state,
+                            "hard_stop": True,
+                            "forward_progress_cm": result.debug.get(
+                                "forward_progress_cm"
+                            ),
+                        },
                     )
                 return result
 
@@ -379,20 +532,36 @@ class MainTaskController:
             if result.failed:
                 return result
             if result.done:
-                self._transition(MainTaskState.WAIT_TARGET)
+                heading_deg = (
+                    MissionConfig.POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS[
+                        self.post_push_class_id
+                    ]
+                )
+                started = self.post_push_search.start(pose, heading_deg)
+                if started.failed:
+                    return started
+                self._transition(MainTaskState.POST_PUSH_POINT_SEARCH)
                 return MotionStep.stop(
-                    "post_push_waypoint_reached_waiting_for_target",
-                    debug={"state": self.state},
+                    "post_push_waypoint_reached_starting_point_search",
+                    debug={
+                        "state": self.state,
+                        "pushed_class_id": self.post_push_class_id,
+                        "forward_heading_deg": heading_deg,
+                        "hard_stop": True,
+                    },
                 )
             return result
 
-        if (
-            self.state == MainTaskState.APPROACH
-            and self.target_search_state == MainTaskState.APPROACH
-        ):
-            target_data = self._relock_approach_target(target)
-        else:
-            target_data = self._target_event(target)
+        if self.state == MainTaskState.APPROACH_SEARCH:
+            return self._approach_loss_search_step(
+                target,
+                pose,
+                tof_distance_mm,
+                yaw_rate_rad_s,
+                dt,
+            )
+
+        target_data = self._target_event(target, pose)
         if self.state == MainTaskState.WAIT_TARGET:
             if target_data is None:
                 return MotionStep.stop(
@@ -410,48 +579,14 @@ class MainTaskController:
             target_for_controller = target
 
         if self.state == MainTaskState.APPROACH:
-            if self.target_search_state == MainTaskState.APPROACH:
-                if target_data is None:
-                    return self._target_search_step(MainTaskState.APPROACH)
-                # Search may have selected a different valid class.  Rebuild
-                # the Approach loop from the current image and ToF reading.
-                self.target_search_state = None
-                self.approach.reset()
-            result = self.approach.step(
+            return self._run_approach_controller(
                 target_for_controller,
+                target_data,
+                pose,
                 tof_distance_mm,
-                dt=dt,
+                yaw_rate_rad_s,
+                dt,
             )
-            if result.done:
-                d0 = result.debug.get("orbit_radius_mm", tof_distance_mm)
-                if d0 is None:
-                    return MotionStep.stop(
-                        "approach_done_without_tof", failed=True
-                    )
-                entry_y = result.debug.get("orbit_target_y_px")
-                if entry_y is None and target_data is not None:
-                    entry_y = target_data[1]
-                if entry_y is None:
-                    return MotionStep.stop(
-                        "approach_done_without_target_y", failed=True
-                    )
-                self._enter_orbit(pose, d0, entry_y)
-                return MotionStep.stop(
-                    "approach_to_orbit",
-                    debug={
-                        # 入轨瞬间必须绕过 S 曲线立即将前移目标清零，避免
-                        # Approach 的残余前移使真实半径小于冻结的 d0。
-                        "immediate_command": True,
-                        "state": self.state,
-                        "entry_tof_mm": self.orbit.entry_tof_mm,
-                        "control_tof_mm": self.orbit.control_tof_mm,
-                        "entry_center_radius_mm": self.orbit.entry_center_radius_mm,
-                        "orbit_center_radius_mm": self.orbit.control_center_radius_mm,
-                    },
-                )
-            if result.failed and result.reason == "spin_search":
-                return self._target_search_step(MainTaskState.APPROACH)
-            return result
 
         if self.state == MainTaskState.PUSH:
             result = self.push.step(
@@ -502,7 +637,7 @@ class MainTaskController:
         if not self.orbit.active:
             if target_data is None:
                 if self.target_search_state == MainTaskState.ORBIT:
-                    return self._target_search_step(MainTaskState.ORBIT)
+                    return self._orbit_target_search_step()
             else:
                 if tof_distance_mm is None:
                     return MotionStep.stop("orbit_recovery_waiting_for_tof")
@@ -523,7 +658,7 @@ class MainTaskController:
             dt=dt,
         )
         if result.failed and result.reason == "spin_search":
-            return self._target_search_step(MainTaskState.ORBIT)
+            return self._orbit_target_search_step()
         if result.failed:
             return result
         if result.done:
@@ -580,22 +715,34 @@ def main():
 
         motor.start()
         motor.hard_stop()
-        print("push yellow config: type={}".format(PushConfig.HAZARD_YELLOW))
+        print(
+            "push yellow config: hazard_type={}".format(
+                PushConfig.HAZARD_YELLOW
+            )
+        )
         if sender is None:
             _startup_delay()
         else:
             sender.hold_zero_for(MissionConfig.START_DELAY_MS)
-        odometry.set_pose(
-            cfg.INITIAL_X_CM,
-            cfg.INITIAL_Y_CM,
-            math.radians(cfg.INITIAL_HEADING_DEG),
+        odometry.reset_position(cfg.INITIAL_X_CM, cfg.INITIAL_Y_CM)
+        heading_reset_id = odometry.request_heading_reset(
+            math.radians(cfg.INITIAL_HEADING_DEG)
         )
+        heading_reset_start_ms = _ticks_ms()
+        while not odometry.heading_reset_completed(heading_reset_id):
+            if (
+                _ticks_diff(_ticks_ms(), heading_reset_start_ms)
+                > MissionConfig.INITIAL_HEADING_RESET_TIMEOUT_MS
+            ):
+                raise RuntimeError("initial heading reset timed out")
+            _sleep_ms(1)
         controller.reset(odometry.get_pose())
 
         last_control_ms = _ticks_ms() - MissionConfig.CONTROL_PERIOD_MS
         previous_state = None
         previous_reason = None
         previous_push_hazard = None
+        suppress_feedforward_w = False
         while True:
             now_ms = _ticks_ms()
             if (
@@ -622,6 +769,9 @@ def main():
                 )
 
                 motor.apply_motion_step(result)
+                suppress_feedforward_w = bool(
+                    result.debug.get("suppress_feedforward_w", False)
+                )
 
                 if controller.state != previous_state:
                     print("state={} reason={}".format(controller.state, result.reason))
@@ -643,7 +793,7 @@ def main():
                     previous_reason = result.reason
 
                 # 仅在 Push 阶段的黄线数据变化时打印，直接确认车端实际收到
-                # 的 (type, y)。None 表示该帧没有有效 hazard。
+                # 的 (hazard_type, y)。None 表示该帧没有有效 hazard。
                 if controller.state == MainTaskState.PUSH:
                     push_hazard = result.debug.get("push_hazard")
                     if push_hazard != previous_push_hazard:
@@ -652,7 +802,13 @@ def main():
                 else:
                     previous_push_hazard = None
             if sender is not None:
-                sender.send_motor_command_if_due(motor, now_ms)
+                sender.send_blended_motion_if_due(
+                    motor,
+                    odometry,
+                    MissionConfig.FEEDFORWARD_MEASURED_WEIGHT,
+                    now_ms,
+                    straight_without_w=suppress_feedforward_w,
+                )
             _sleep_ms(1)
     except KeyboardInterrupt:
         print("test stopped")

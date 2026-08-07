@@ -178,7 +178,10 @@ class MotorConfig:
 
         self.robot_radius_cm = 9.1
         # 1.0 是物理模型值；仅在完成旋转测试后才可增大。
-        self.rotation_gain = 1.03
+        # 录像绝对角速度标定：2.0 rad/s 命令在旧系数 1.03 下，
+        # 15.707963 s 仅转过 1410°（目标 1800°）。按 1800/1410
+        # 修正车体角速度到轮速的映射，使公开的 w 命令更接近真实 rad/s。
+        self.rotation_gain = 1.315
         self.max_wheel_speed_cm_s = 700.0
 
         # 兼容旧调用方的公共比例；新的控制路径按横向/前向分别取值。

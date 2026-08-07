@@ -353,6 +353,57 @@ class WheelControllerTests(unittest.TestCase):
 
 
 class OdometryTests(unittest.TestCase):
+    @staticmethod
+    def _calibration_odometry(samples, samples_per_attempt, attempts):
+        class FakeIMU:
+            def __init__(self, values):
+                self.values = values
+                self.read_count = 0
+
+            def read(self):
+                value = self.values[self.read_count]
+                self.read_count += 1
+                return value
+
+        odometry = OdometrySystem()
+        odometry.config.calibration_wait_ms = 0
+        odometry.config.calibration_period_ms = 0
+        odometry.config.calibration_retry_wait_ms = 0
+        odometry.config.calibration_samples = samples_per_attempt
+        odometry.config.calibration_attempts = attempts
+        odometry.imu = FakeIMU(samples)
+        return odometry
+
+    def test_calibration_retries_after_transient_collision(self):
+        moving_window = [
+            [0.0, -4096.0, 0.0, gyro, 0.0, 0.0]
+            for gyro in (1000.0, -1000.0, 1000.0, -1000.0)
+        ]
+        still_window = [
+            [0.0, -4096.0, 0.0, 3.0, -2.0, 1.0]
+            for _ in range(4)
+        ]
+        odometry = self._calibration_odometry(
+            moving_window + still_window, 4, 2
+        )
+
+        self.assertTrue(odometry.calibrate())
+        self.assertEqual(odometry.imu.read_count, 8)
+        self.assertEqual(odometry.gyro_bias_raw, [3.0, -2.0, 1.0])
+
+    def test_calibration_still_fails_after_all_moving_windows(self):
+        moving_window = [
+            [0.0, -4096.0, 0.0, gyro, 0.0, 0.0]
+            for gyro in (1000.0, -1000.0, 1000.0, -1000.0)
+        ]
+        odometry = self._calibration_odometry(
+            moving_window + moving_window, 4, 2
+        )
+
+        self.assertFalse(odometry.calibrate())
+        self.assertFalse(odometry.calibrated)
+        self.assertIn("attempt=2/2", odometry.calibration_error)
+
     def test_forward_motion_integrates_along_world_x(self):
         odometry = OdometrySystem()
         odometry.reset_heading(0.0)

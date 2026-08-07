@@ -29,6 +29,28 @@ POST_PUSH_WAYPOINT_BY_CLASS = {
     4: (220.0, 120.0),
     5: (220.0, 120.0),
 }
+# 到达 Push 后返场点的固定朝向：1/2=沙包，3=网球，4/5=小熊。
+POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS = {
+    1: 0.0,
+    2: 0.0,
+    3: -90.0,
+    4: 180.0,
+    5: 180.0,
+}
+POST_PUSH_POINT_WAIT_S = 1.0
+POST_PUSH_FORWARD_SPEED_CM_S = 40.0
+POST_PUSH_FORWARD_MAX_DISTANCE_CM = 100.0
+
+# Approach 丢失目标并完成一整圈搜索后使用的循环搜物路径。
+# 每个三元组为 (世界 X cm, 世界 Y cm, 平移期间保持的世界航向 deg)。
+APPROACH_LOSS_SEARCH_WAYPOINTS = (
+    (100.0, 160.0, 0.0),
+    (100.0, 80.0, 0.0),
+    (120.0, 60.0, 90.0),
+    (200.0, 60.0, 90.0),
+    (220.0, 80.0, 180.0),
+    (220.0, 160.0, 180.0),
+)
 # Push 后转完 180°、返回下一个场地点时的视觉保护门。三元组为
 # (世界坐标轴, 需要增加/减少的符号, 最小坐标变化量 cm)。
 # 1/2=沙包，3=网球，4/5=小熊。
@@ -70,54 +92,48 @@ class NavigationConfig:
     TRANSLATE_HEADING_DEADBAND_RAD = math.radians(2.0)
     TRANSLATE_MAX_W_RAD_S = 4.0
 
-    TURN_FAST_ERROR_RAD = math.radians(30.0)  # 原地转向：快速旋转阶段角度误差阈值（弧度，30度）
+    TURN_FAST_ERROR_RAD = math.radians(25.0)  # 原地转向：快速旋转阶段角度误差阈值（弧度，25度）
     TURN_MID_ERROR_RAD = math.radians(5.0)
     TURN_FAST_W_RAD_S = 3.14 # 原地转向：高速旋转阶段角速度（弧度/秒）
-    TURN_MID_W_RAD_S = 2.00  # 原地转向：中速旋转阶段角速度（弧度/秒）
-    TURN_SLOW_W_RAD_S = 0.4
+    TURN_MID_KP = 5.0  # 中速段比例增益（大于慢速段）
+    TURN_MID_W_RAD_S = 1.50  # 中速段 P 输出上限（弧度/秒）
+    TURN_SLOW_KP = 4.0  # 慢速段比例增益；5 度误差时输出约 0.35 rad/s
     TURN_DAMPING_KD = 0.10
     TURN_TOLERANCE_RAD = math.radians(4.0)
     TURN_YAW_RATE_TOLERANCE_RAD_S = 0.12  # 原地转向完成允许的最大残留角速度上限（弧度/秒）
-    TURN_STABLE_TIME_S = 0.1  # 原地转向判定稳定停靠需保持的持续时间（秒）
 
 class ApproachConfig:
     """car141929 逼近（Approach）阶段参数及当前底盘比例换算。"""
 
     LINEAR_SPEED_SCALE = LINEAR_SPEED_SCALE  # 继承全局线速度比例系数
     TARGET_CENTER_X_PX = 160.0  # 摄像头视野中心 X 轴图像坐标（像素）
-    STOP_Y_THRESHOLD_PX = 170.0  # 逼近阶段停止时目标物在图像中的目标 Y 轴坐标（像素）
-    X_DEAD_BAND_PX = 15.0
-    SLOW_FORWARD_X_ERROR_PX = 120.0  # 当 X 轴偏差大于该值时触发减速前行（像素）
-    APPROACH_Y_SLOW_START_PX = 60.0  # 图像 Y 轴方向接近目标时开始前向减速的距离（像素）
+    STOP_Y_THRESHOLD_PX = 110.0  # 逼近阶段停止时目标物在图像中的目标 Y 轴坐标（像素）
+    VISUAL_STOP_Y_THRESHOLD_BY_CLASS = {3: 120.0}  # 网球视觉完成靠近的 Y 像素阈值
+    SLOW_FORWARD_X_ERROR_PX = 80.0  # 当 X 轴偏差大于该值时触发减速前行（像素）
+    APPROACH_Y_SLOW_START_PX = 50.0  # 图像 Y 轴方向接近目标时开始前向减速的距离（像素）
 
     APPROACH_SPEED_CM_S = 100.0
-    MIN_APPROACH_SPEED_CM_S = 50.0
-    MAX_LATERAL_SPEED_CM_S = MISSION_MAX_XY_SPEED_CM_S
+    MIN_APPROACH_SPEED_CM_S = 30.0
     TOF_SLOW_START_MM = 500.0  # ToF 激光传感器开始触发减速前行进给的距离门限（毫米）
 
     STOP_DISTANCE_MM = TOF_ORBIT_ENTRY_MM
-    TENNIS_STOP_DISTANCE_MM = TOF_ORBIT_ENTRY_MM
+    TENNIS_STOP_DISTANCE_MM = 200.0
     TOF_VALID_MIN_MM = 20.0  # ToF 传感器有效读数最小下门限（毫米）
     TOF_VALID_MAX_MM = TOF_VALID_MAX_MM
 
-    TARGET_ALIGN_ERROR_PX = 30.0
+    TARGET_ALIGN_ERROR_PX = 10.0
     ALIGN_TIMEOUT_S = 1.0  # 逼近阶段视觉对准等待的最大超时时间（秒）
     TARGET_LOSS_DECAY_S = 0.4  # 丢失视觉目标后速度线性衰减清零的缓冲时间（秒）
     ORBIT_MIN_RADIUS_MM = 0.0
     TOF_FALLBACK_SPEED_CM_S = 30.0
     TOF_FALLBACK_STOP_Y_PX = 120.0
     MAX_XY_SPEED_CM_S = MISSION_MAX_XY_SPEED_CM_S
-    VISUAL_STOP_ENABLED = False
+    VISUAL_STOP_ENABLED = True
 
     # 逼近阶段 PID 参数
-    PID_X_KP = 0.67 * LINEAR_SPEED_SCALE  # 横向 X 轴像素对位 PID P 增益
-    PID_X_KI = 0.03 * LINEAR_SPEED_SCALE  # 横向 X 轴像素对位 PID I 增益
-    PID_X_KD = 0.2 * LINEAR_SPEED_SCALE  # 横向 X 轴像素对位 PID D 增益
-    PID_X_I_LIMIT = 100.0  # 横向 X 轴像素对位积分限幅
-
-    PID_APPROACH_W_KP = 0.0048  # 逼近阶段角速度 PID P 增益
-    PID_APPROACH_W_KI = 0.0030  # 逼近阶段角速度 PID I 增益
-    PID_APPROACH_W_KD = 0.0005  # 逼近阶段角速度 PID D 增益
+    PID_APPROACH_W_KP = 0.012  # 逼近阶段角速度 PID P 增益
+    PID_APPROACH_W_KI = 0.0  # 逼近阶段角速度 PID I 增益
+    PID_APPROACH_W_KD = 0.0  # 逼近阶段角速度 PID D 增益
     PID_APPROACH_W_OUTPUT_LIMIT = 3.0  # 逼近阶段角速度 PID 输出上限（弧度/秒）
     PID_APPROACH_W_I_LIMIT = 100.0  # 逼近阶段角速度 PID 积分限幅
 
@@ -238,7 +254,7 @@ class PushConfig:
     CONTACT_I_LIMIT = 100.0  # 推杆接触控制 PID 积分限幅
     CONTACT_MAX_ADJUST_CM_S = 80.0 * LINEAR_SPEED_SCALE  # 接触调整最大修正速度上限（厘米/秒）
 
-    YELLOW_STOP_DELAY_S = 0.7  # 触发黄色避障带后停止前行的延迟等待时间（秒）
+    YELLOW_STOP_DELAY_S = 0.3  # 黄线命中后的继续推行及后续硬停保持时间（秒）
     HAZARD_OBSTACLE = 7  # 危险障碍物分类标识符
     HAZARD_YELLOW = 6  # 黄色避障带分类标识符
 
@@ -305,6 +321,9 @@ class MissionConfig:
     CONTROL_PERIOD_MS = CONTROL_PERIOD_MS
     FEEDFORWARD_ENABLED = True
     FEEDFORWARD_TX_PERIOD_MS = 10
+    # 无线前馈 = 实测速度 * 此权重 + S 曲线目标指令 * (1 - 此权重)。
+    # vx/vy 使用编码器里程计，w 使用 IMU；调试范围必须为 0.0～1.0。
+    FEEDFORWARD_MEASURED_WEIGHT = 0.25
     START_DELAY_MS = 2000
     INITIAL_HEADING_RESET_TIMEOUT_MS = 100
 
@@ -315,12 +334,20 @@ class MissionConfig:
 
     SEARCH_W_RAD_S = 1.5
     SEARCH_LOCK_TIMEOUT_S = 8.0
+    APPROACH_LOSS_SEARCH_TURN_RAD = 2.0 * math.pi
+    APPROACH_LOSS_SEARCH_WAYPOINTS = APPROACH_LOSS_SEARCH_WAYPOINTS
     TARGET_CLASS_IDS = (1, 2, 3, 4, 5)
     TOTAL_OBJECTS_TO_PUSH = 3
     INITIAL_WAYPOINT = INITIAL_WAYPOINT
     VISUAL_ENABLE_MIN_X_CM = VISUAL_ENABLE_MIN_X_CM
     VISUAL_ENABLE_MIN_Y_CM = VISUAL_ENABLE_MIN_Y_CM
     POST_PUSH_WAYPOINT_BY_CLASS = POST_PUSH_WAYPOINT_BY_CLASS
+    POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS = (
+        POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS
+    )
+    POST_PUSH_POINT_WAIT_S = POST_PUSH_POINT_WAIT_S
+    POST_PUSH_FORWARD_SPEED_CM_S = POST_PUSH_FORWARD_SPEED_CM_S
+    POST_PUSH_FORWARD_MAX_DISTANCE_CM = POST_PUSH_FORWARD_MAX_DISTANCE_CM
     POST_PUSH_VISUAL_GATE_BY_CLASS = POST_PUSH_VISUAL_GATE_BY_CLASS
     CLASS_HEADING_DEG = CLASS_HEADING_DEG
 
