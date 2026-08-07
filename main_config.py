@@ -220,6 +220,8 @@ class PushConfig:
     """推行（Push）阶段参数配置（速度已按当前底盘比例缩放）。"""
 
     LINEAR_SPEED_SCALE = LINEAR_SPEED_SCALE  # 继承全局线速度比例系数
+    # PUSH 顶层状态（普通推行和避障）发送给辅助车的三轴无线速度统一缩放。
+    WIRELESS_FEEDFORWARD_SCALE = 0.9
 
     TARGET_CENTER_X_PX = 65.0
     TARGET_Y_PX = 168.0
@@ -323,7 +325,7 @@ class MissionConfig:
     FEEDFORWARD_TX_PERIOD_MS = 10
     # 无线前馈 = 实测速度 * 此权重 + S 曲线目标指令 * (1 - 此权重)。
     # vx/vy 使用编码器里程计，w 使用 IMU；调试范围必须为 0.0～1.0。
-    FEEDFORWARD_MEASURED_WEIGHT = 0.25
+    FEEDFORWARD_MEASURED_WEIGHT = 0
     START_DELAY_MS = 2000
     INITIAL_HEADING_RESET_TIMEOUT_MS = 100
 

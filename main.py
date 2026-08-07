@@ -802,12 +802,18 @@ def main():
                 else:
                     previous_push_hazard = None
             if sender is not None:
+                feedforward_output_scale = (
+                    PushConfig.WIRELESS_FEEDFORWARD_SCALE
+                    if controller.state == MainTaskState.PUSH
+                    else 1.0
+                )
                 sender.send_blended_motion_if_due(
                     motor,
                     odometry,
                     MissionConfig.FEEDFORWARD_MEASURED_WEIGHT,
                     now_ms,
                     straight_without_w=suppress_feedforward_w,
+                    output_scale=feedforward_output_scale,
                 )
             _sleep_ms(1)
     except KeyboardInterrupt:

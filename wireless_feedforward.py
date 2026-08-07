@@ -195,11 +195,15 @@ class FeedforwardSender:
         odometry,
         measured_weight,
         straight_without_w=False,
+        output_scale=1.0,
     ):
         """融合 S 曲线目标指令和编码器/IMU 实测速度后发送。"""
         measured_weight = float(measured_weight)
         if not 0.0 <= measured_weight <= 1.0:
             raise ValueError("measured feedforward weight must be within 0..1")
+        output_scale = float(output_scale)
+        if not 0.0 <= output_scale < 1.0e6:
+            raise ValueError("feedforward output scale must be finite and non-negative")
         target_weight = 1.0 - measured_weight
         if hasattr(motor, "get_limited_physical_command"):
             target = motor.get_limited_physical_command()
@@ -212,8 +216,11 @@ class FeedforwardSender:
             float(state["yaw_rate_rad_s"]),
         )
         command = tuple(
-            target_weight * float(target[index])
-            + measured_weight * measured[index]
+            output_scale
+            * (
+                target_weight * float(target[index])
+                + measured_weight * measured[index]
+            )
             for index in range(3)
         )
         if straight_without_w:
@@ -228,6 +235,7 @@ class FeedforwardSender:
         measured_weight,
         now_ms=None,
         straight_without_w=False,
+        output_scale=1.0,
     ):
         """达到发送周期时发送一帧目标与实测的融合速度。"""
         if now_ms is None:
@@ -242,6 +250,7 @@ class FeedforwardSender:
             odometry,
             measured_weight,
             straight_without_w=straight_without_w,
+            output_scale=output_scale,
         )
 
     def send_zero_frames(self, count=5):

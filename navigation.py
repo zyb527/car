@@ -15,6 +15,17 @@ from control import (
 )
 
 
+DEFAULT_TURN_MAX_TIME_S = 8.0
+
+
+def _turn_max_time_s(config):
+    """Return the shared safety limit for navigation-only in-place turns."""
+    return max(
+        0.001,
+        float(getattr(config, "TURN_MAX_TIME_S", DEFAULT_TURN_MAX_TIME_S)),
+    )
+
+
 def world_to_body(world_vx, world_vy, heading_rad):
     """将世界速度转换到 (+右, +前) 车体系。"""
     sin_heading = math.sin(heading_rad)
@@ -203,17 +214,22 @@ class HeadingTurnController:
 
     def __init__(self, config):
         self.config = config
+        self.max_turn_time_s = _turn_max_time_s(config)
         self.target_heading_rad = None
+        self.elapsed_s = 0.0
 
     def start(self, target_heading_rad):
         self.target_heading_rad = normalize_angle(float(target_heading_rad))
+        self.elapsed_s = 0.0
 
     def reset(self):
         self.target_heading_rad = None
+        self.elapsed_s = 0.0
 
     def step(self, heading_rad, yaw_rate_rad_s, dt):
         if self.target_heading_rad is None:
             return MotionStep.stop("turn_not_started", failed=True)
+        self.elapsed_s += max(0.0, float(dt))
         error = normalize_angle(
             self.target_heading_rad - float(heading_rad)
         )
@@ -231,6 +247,17 @@ class HeadingTurnController:
                 debug={
                     "heading_error_rad": error,
                     "suppress_feedforward_w": True,
+                },
+            )
+
+        if self.elapsed_s >= self.max_turn_time_s:
+            return MotionStep.stop(
+                "heading_turn_timeout",
+                failed=True,
+                debug={
+                    "heading_error_rad": error,
+                    "turn_elapsed_s": self.elapsed_s,
+                    "turn_max_time_s": self.max_turn_time_s,
                 },
             )
 
@@ -264,21 +291,25 @@ class ClockwiseTurnController:
 
     def __init__(self, config):
         self.config = config
+        self.max_turn_time_s = _turn_max_time_s(config)
         self.reset()
 
     def reset(self):
         self.active = False
         self.last_heading_rad = None
         self.progress_rad = 0.0
+        self.elapsed_s = 0.0
 
     def start(self, heading_rad):
         self.active = True
         self.last_heading_rad = float(heading_rad)
         self.progress_rad = 0.0
+        self.elapsed_s = 0.0
 
     def step(self, heading_rad, yaw_rate_rad_s, dt, angle_rad=math.pi):
         if not self.active:
             return MotionStep.stop("clockwise_turn_not_started", failed=True)
+        self.elapsed_s += max(0.0, float(dt))
         heading_delta = normalize_angle(float(heading_rad) - self.last_heading_rad)
         if heading_delta < 0.0:
             self.progress_rad += -heading_delta
@@ -296,6 +327,17 @@ class ClockwiseTurnController:
                         "suppress_feedforward_w": True,
                     },
                 )
+
+        if self.elapsed_s >= self.max_turn_time_s:
+            return MotionStep.stop(
+                "clockwise_turn_timeout",
+                failed=True,
+                debug={
+                    "turn_progress_rad": self.progress_rad,
+                    "turn_elapsed_s": self.elapsed_s,
+                    "turn_max_time_s": self.max_turn_time_s,
+                },
+            )
 
         if remaining > self.config.TURN_FAST_ERROR_RAD:
             speed, profile = self.config.TURN_FAST_W_RAD_S, "fast"
@@ -326,23 +368,27 @@ class CounterclockwiseTurnController:
 
     def __init__(self, config):
         self.config = config
+        self.max_turn_time_s = _turn_max_time_s(config)
         self.reset()
 
     def reset(self):
         self.active = False
         self.last_heading_rad = None
         self.progress_rad = 0.0
+        self.elapsed_s = 0.0
 
     def start(self, heading_rad):
         self.active = True
         self.last_heading_rad = float(heading_rad)
         self.progress_rad = 0.0
+        self.elapsed_s = 0.0
 
     def step(self, heading_rad, yaw_rate_rad_s, dt, angle_rad=math.pi):
         if not self.active:
             return MotionStep.stop(
                 "counterclockwise_turn_not_started", failed=True
             )
+        self.elapsed_s += max(0.0, float(dt))
         heading_delta = normalize_angle(float(heading_rad) - self.last_heading_rad)
         if heading_delta > 0.0:
             self.progress_rad += heading_delta
@@ -360,6 +406,17 @@ class CounterclockwiseTurnController:
                         "suppress_feedforward_w": True,
                     },
                 )
+
+        if self.elapsed_s >= self.max_turn_time_s:
+            return MotionStep.stop(
+                "counterclockwise_turn_timeout",
+                failed=True,
+                debug={
+                    "turn_progress_rad": self.progress_rad,
+                    "turn_elapsed_s": self.elapsed_s,
+                    "turn_max_time_s": self.max_turn_time_s,
+                },
+            )
 
         if remaining > self.config.TURN_FAST_ERROR_RAD:
             speed, profile = self.config.TURN_FAST_W_RAD_S, "fast"

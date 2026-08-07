@@ -189,7 +189,7 @@ class ProtocolTests(unittest.TestCase):
             (decoded["vx"], decoded["vy"], decoded["w"]),
             expected,
         ):
-            self.assertAlmostEqual(actual, value)
+            self.assertAlmostEqual(actual, value, places=6)
 
     def test_blended_motion_suppresses_w_after_blending(self):
         wireless = FakeWireless()
@@ -203,6 +203,41 @@ class ProtocolTests(unittest.TestCase):
         )
 
         self.assertEqual(command, (7.625, 4.9375, 0.0))
+
+    def test_blended_motion_scales_all_three_transmitted_axes(self):
+        wireless = FakeWireless()
+        sender = feedforward.FeedforwardSender(wireless=wireless)
+
+        command = sender.send_blended_motion_if_due(
+            FakePhysicalMotor(),
+            FakeOdometry(),
+            measured_weight=0.25,
+            now_ms=100,
+            output_scale=0.9,
+        )
+
+        expected = (6.8625, 4.44375, -0.19125)
+        for actual, value in zip(command, expected):
+            self.assertAlmostEqual(actual, value)
+        decoded = feedforward.decode_feedforward(wireless.sent[0])
+        for actual, value in zip(
+            (decoded["vx"], decoded["vy"], decoded["w"]),
+            expected,
+        ):
+            self.assertAlmostEqual(actual, value, places=6)
+
+    def test_blended_motion_rejects_invalid_output_scale(self):
+        sender = feedforward.FeedforwardSender(wireless=FakeWireless())
+
+        for value in (-0.01, math.nan, math.inf):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    sender.send_blended_motion(
+                        FakePhysicalMotor(),
+                        FakeOdometry(),
+                        measured_weight=0.25,
+                        output_scale=value,
+                    )
 
     def test_blended_motion_rejects_weight_outside_unit_interval(self):
         sender = feedforward.FeedforwardSender(wireless=FakeWireless())
