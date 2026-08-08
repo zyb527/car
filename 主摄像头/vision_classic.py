@@ -1,6 +1,6 @@
 # vision_classic.py
 # 统一的黄色阈值配置
-yellow_thresholds = [(40, 100, -38, -8, 66, 90)]
+yellow_thresholds = [(47, 98, -30, -3, 65, 92)]
 
 def detect_yellow_border(img):
     """
@@ -14,7 +14,7 @@ def detect_yellow_border(img):
         w = blob.w()
         h = blob.h()
         # 限制条件：矩形的一边至少大于另一边的两倍
-        if w >= 2 * h or h >= 2 * w:
+        if w >= 4 * h or h >= 4 * w:
             blobs_found.append(blob)
 
     if blobs_found:
@@ -22,3 +22,4 @@ def detect_yellow_border(img):
         return max_blob.cx(), max_blob.cy(), max_blob
 
     return None, None, None
+

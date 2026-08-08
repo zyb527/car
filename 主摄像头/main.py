@@ -44,7 +44,7 @@ if LCD_DISPLAY_ENABLED:
         print("LCD Init failed:", e)
 
 # ================= 业务变量 =================
-yellow_line_enabled = True
+yellow_line_enabled = False
 enable_car_brick = True
 target_class_filter = 0
 force_rescan_enabled = True
