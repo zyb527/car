@@ -33,7 +33,7 @@ PRIORITY_ORDER = ["redbag", "bluebag", "ball", "brownbear", "whitebear"]
 # 手动屏蔽列表：只需修改本行后重新运行主摄像头程序。
 # 留空表示不屏蔽；示例：{"ball"}；多个：{"ball", "bluebag", "brick"}。
 # 可用名称："redbag"、"bluebag"、"ball"、"brownbear"、"whitebear"、"brick"。
-MANUALLY_DISABLED_LABELS = set("whitebear")  # 示例：{"ball", "bluebag"}
+MANUALLY_DISABLED_LABELS = set()  # 示例：{"ball", "bluebag"}
 
 # 锁定与追踪参数
 ACQUIRE_SCORE = 0.60
@@ -65,9 +65,11 @@ class Tracker:
     def __init__(self):
         try:
             self.net = tf.load(MODEL_PATH)
+            self.model_loaded = True
         except Exception as e:
             print("Model load failed:", e)
             self.net = None
+            self.model_loaded = False
         
         self.lock_name = None
         self.smooth_x = 0.0

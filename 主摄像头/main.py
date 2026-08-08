@@ -18,7 +18,7 @@ sensor.set_brightness(0)
 sensor.set_contrast(0)
 sensor.set_saturation(0)
 sensor.set_auto_whitebal(False, rgb_gain_db=(1.0, 1.0, 1.0))
-sensor.set_auto_gain(False, gain_db=10.0)
+sensor.set_auto_gain(False, gain_db=7.0)
 sensor.set_auto_exposure(False, exposure_us=1800)
 sensor.set_framerate(60)
 sensor.skip_frames(time=1000)
@@ -187,6 +187,12 @@ while True:
             disp_img.draw_string(165, 145, "--- STATUS ---", color=(255, 255, 255), scale=1)
             disp_img.draw_string(165, 160, "FPS: %.1f" % clock.fps(), color=(255, 255, 255), scale=1)
             disp_img.draw_string(165, 175, "State: %s" % status, color=(255, 255, 255), scale=1)
+
+            # 在屏幕左下角显示模型加载状态
+            if tracker.model_loaded:
+                disp_img.draw_string(5, 210, "ok", color=(0, 255, 0), scale=2)
+            else:
+                disp_img.draw_string(5, 210, "no", color=(255, 0, 0), scale=2)
 
             lcd.show_image(disp_img, 320, 240, zoom=0)
         except Exception:
