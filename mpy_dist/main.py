@@ -600,6 +600,7 @@ class MainTaskController:
             if result.done:
                 if self.vision_receiver is not None:
                     self.vision_receiver.set_yellow_line(False)
+                    self.vision_receiver.unlock_target()
                 self.push.reset()
                 if result.reason in (
                     "push_yellow_line_hard_stop",
@@ -667,7 +668,6 @@ class MainTaskController:
                 self.locked_class_id,
             )
             if self.vision_receiver is not None:
-                self.vision_receiver.unlock_target()
                 self.vision_receiver.set_yellow_line(True)
             self._transition(MainTaskState.PUSH)
             return MotionStep.stop(

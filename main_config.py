@@ -223,8 +223,10 @@ class PushConfig:
     # PUSH 顶层状态（普通推行和避障）发送给辅助车的三轴无线速度统一缩放。
     WIRELESS_FEEDFORWARD_SCALE = 0.9
 
-    TARGET_CENTER_X_PX = 65.0
-    TARGET_Y_PX = 168.0
+    # 主车接收的是主摄放大后的 320x240 坐标；推行时让物体保持在
+    # 主车坐标 (30, 75)，该参考点与双车系统的避障中心相互独立。
+    TARGET_CENTER_X_PX = 30.0
+    TARGET_Y_PX = 75.0
 
     PUSH_SPEED_CM_S = 100.0  # 推行阶段斜坡加速后的目标前进速度（厘米/秒）
     PUSH_START_SPEED_CM_S = 70.0 * LINEAR_SPEED_SCALE  # 推行起步时的初始缓启速度（厘米/秒）
@@ -263,7 +265,7 @@ class PushConfig:
     # 双车同侧推行编队避障几何参数
     FORMATION_BASELINE_CM = 20.0  # 双车旋转中心之间的基线物理距离（厘米）
     OBJECT_FORWARD_OFFSET_CM = 10.0  # 物体相对于旋转中心的前向距离偏移（厘米）
-    AVOID_CENTER_X_PX = TARGET_CENTER_X_PX  # 避障视觉安全中心 X 轴像素坐标
+    AVOID_CENTER_X_PX = 65.0  # 双车推行系统的避障视觉中心 X 轴像素坐标
     AVOID_CENTER_DEADBAND_PX = 10.0  # 避障视觉中心死区像素
     PREFERRED_AVOID_DIRECTION = "left"  # 偏好避障转向方向 ("left" 左避)
     AVOID_Y_NEAR_PX = 30.0  # 较近预警像素距离
