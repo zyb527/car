@@ -73,6 +73,28 @@ def _ticks_diff(new_value, old_value):
     return new_value - old_value
 
 
+def _apply_push_coordinate_correction(odometry, pose, correction):
+    """Apply one Push yellow-line position correction without changing heading."""
+    if not correction:
+        return None
+    axis = correction.get("axis")
+    try:
+        value_cm = float(correction["value_cm"])
+        x_cm = float(pose[0])
+        y_cm = float(pose[1])
+        heading_rad = float(pose[2])
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+    if axis == "x":
+        x_cm = value_cm
+    elif axis == "y":
+        y_cm = value_cm
+    else:
+        return None
+    odometry.reset_position(x_cm, y_cm)
+    return x_cm, y_cm, heading_rad
+
+
 def _sleep_ms(milliseconds):
     if hasattr(time, "sleep_ms"):
         time.sleep_ms(int(milliseconds))
@@ -597,6 +619,15 @@ class MainTaskController:
                 yaw_rate_rad_s=yaw_rate_rad_s,
                 dt=dt,
             )
+            yellow_correction = result.debug.get(
+                "yellow_coordinate_correction"
+            )
+            if (
+                yellow_correction
+                and yellow_correction.get("disable_yellow_line")
+                and self.vision_receiver is not None
+            ):
+                self.vision_receiver.set_yellow_line(False)
             if result.done:
                 if self.vision_receiver is not None:
                     self.vision_receiver.set_yellow_line(False)
@@ -767,6 +798,16 @@ def main():
                     yaw_rate_rad_s=odometry_state["yaw_rate_rad_s"],
                     dt=dt,
                 )
+
+                corrected_pose = _apply_push_coordinate_correction(
+                    odometry,
+                    pose,
+                    result.debug.get("yellow_coordinate_correction"),
+                )
+                if corrected_pose is not None:
+                    result.debug["yellow_coordinate_correction_applied"] = (
+                        corrected_pose
+                    )
 
                 motor.apply_motion_step(result)
                 suppress_feedforward_w = bool(

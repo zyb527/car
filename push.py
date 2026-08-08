@@ -144,6 +144,10 @@ class PushController:
         self.clear_start_frame_ms = None
         self.last_clear_frame_ms = None
         self.last_hazard_sequence = None
+        # 每轮 Push 的黄线坐标校准只能各执行一次。第二阶段只允许由
+        # 首次命中之后的后续帧触发，避免单帧 y>210 连续校准两次。
+        self.yellow_first_correction_done = False
+        self.yellow_second_correction_done = False
 
     def start(self, current_heading_rad, class_id=0):
         self.reset()
@@ -265,6 +269,33 @@ class PushController:
             reason="push_target_lost_continue",
         )
 
+    def _yellow_correction_event(self, phase):
+        if phase == "first":
+            positions = _cfg(
+                self.config, "YELLOW_FIRST_POSITION_BY_CLASS", {}
+            )
+        else:
+            positions = _cfg(
+                self.config, "YELLOW_SECOND_POSITION_BY_CLASS", {}
+            )
+        correction = positions.get(self.class_id)
+        if correction is None:
+            return None
+        axis, value_cm = correction
+        event = {
+            "phase": phase,
+            "axis": axis,
+            "value_cm": float(value_cm),
+        }
+        event["disable_yellow_line"] = phase == "second" or self.class_id == 3
+        return event
+
+    @staticmethod
+    def _with_yellow_correction(result, correction):
+        if correction is not None:
+            result.debug["yellow_coordinate_correction"] = correction
+        return result
+
     def step(
         self,
         target,
@@ -287,16 +318,37 @@ class PushController:
         if hazard_data is False:
             return MotionStep.stop("push_hazard_error", failed=True)
 
-        # 黄线判断：命中后按配置延迟一段时间再硬停。
+        yellow_correction = None
+
         if (
             hazard_data
             and hazard_data["found"]
             and hazard_data["hazard_type"]
             == _cfg(self.config, "HAZARD_YELLOW", 6)
-            and hazard_data["y"] > 100
         ):
-            if self.state != State.YELLOW_DELAY and self.state != State.YELLOW_STOP:
-                self._transition_to(State.YELLOW_DELAY)
+            yellow_y = hazard_data["y"]
+            if (
+                not self.yellow_first_correction_done
+                and yellow_y
+                > _cfg(self.config, "YELLOW_FIRST_CORRECTION_Y_PX", 100.0)
+            ):
+                self.yellow_first_correction_done = True
+                yellow_correction = self._yellow_correction_event("first")
+                if (
+                    self.state != State.YELLOW_DELAY
+                    and self.state != State.YELLOW_STOP
+                ):
+                    self._transition_to(State.YELLOW_DELAY)
+            elif (
+                self.yellow_first_correction_done
+                and not self.yellow_second_correction_done
+                and yellow_y
+                > _cfg(self.config, "YELLOW_SECOND_CORRECTION_Y_PX", 210.0)
+            ):
+                correction = self._yellow_correction_event("second")
+                if correction is not None:
+                    self.yellow_second_correction_done = True
+                    yellow_correction = correction
 
         if self.state == State.YELLOW_DELAY:
             if self.time_in_state >= _cfg(
@@ -304,22 +356,31 @@ class PushController:
             ):
                 self._transition_to(State.YELLOW_STOP)
                 self.active = False
-                return MotionStep.stop(
-                    "push_yellow_line_hard_stop",
-                    done=True,
-                    debug={
-                        "hard_stop": True,
-                        "yellow_type": 6,
-                        "yellow_delay_completed": True,
-                    },
+                return self._with_yellow_correction(
+                    MotionStep.stop(
+                        "push_yellow_line_hard_stop",
+                        done=True,
+                        debug={
+                            "hard_stop": True,
+                            "yellow_type": 6,
+                            "yellow_delay_completed": True,
+                        },
+                    ),
+                    yellow_correction,
                 )
             # 延迟期间不返回 stop，继续走下面的代码保持速度
         elif self.state == State.YELLOW_STOP:
-            return MotionStep.stop("push_yellow_line_hard_stop", done=True)
+            return self._with_yellow_correction(
+                MotionStep.stop("push_yellow_line_hard_stop", done=True),
+                yellow_correction,
+            )
 
         if self.total_time > _cfg(self.config, "PUSH_DURATION_S", 10.0):
             self.active = False
-            return MotionStep.stop("push_duration_complete", done=True)
+            return self._with_yellow_correction(
+                MotionStep.stop("push_duration_complete", done=True),
+                yellow_correction,
+            )
 
         avoidance_enabled = _cfg(
             self.config, "PUSH_AVOIDANCE_ENABLED", True
@@ -350,8 +411,11 @@ class PushController:
 
         if self.state == State.AVOID_ENTER:
             if not obstacle_found:
-                return MotionStep.stop(
-                    "push_hazard_timeout_before_avoidance", failed=True
+                return self._with_yellow_correction(
+                    MotionStep.stop(
+                        "push_hazard_timeout_before_avoidance", failed=True
+                    ),
+                    yellow_correction,
                 )
             h_x = hazard_data["x"]
             center_x = _cfg(self.config, "AVOID_CENTER_X_PX", 160.0)
@@ -386,7 +450,10 @@ class PushController:
                     self.last_clear_frame_ms = frame_ms
                     self._transition_to(State.AVOID_CLEAR_HOLD)
                 elif hazard_data is None:
-                    return MotionStep.stop("push_hazard_timeout", failed=True)
+                    return self._with_yellow_correction(
+                        MotionStep.stop("push_hazard_timeout", failed=True),
+                        yellow_correction,
+                    )
 
             elif self.state == State.AVOID_CLEAR_HOLD:
                 if obstacle_found:
@@ -394,7 +461,10 @@ class PushController:
                     self.clear_start_frame_ms = None
                     self.last_clear_frame_ms = None
                 elif hazard_data is None:
-                    return MotionStep.stop("push_hazard_timeout", failed=True)
+                    return self._with_yellow_correction(
+                        MotionStep.stop("push_hazard_timeout", failed=True),
+                        yellow_correction,
+                    )
                 elif explicit_clear and is_new_hazard_frame:
                     frame_ms = hazard_data.get("frame_ms")
                     if frame_ms is not None:
@@ -422,7 +492,10 @@ class PushController:
                 if obstacle_found:
                     self._transition_to(State.AVOID_TRACK)
                 elif hazard_data is None:
-                    return MotionStep.stop("push_hazard_timeout", failed=True)
+                    return self._with_yellow_correction(
+                        MotionStep.stop("push_hazard_timeout", failed=True),
+                        yellow_correction,
+                    )
 
         avoidance_active = self.state in (
             State.AVOID_TRACK,
@@ -441,12 +514,18 @@ class PushController:
                     if _cfg(
                         self.config, "PUSH_SINGLE_VEHICLE_MODE", False
                     ):
-                        return self._target_lost_continue_step(
-                            current_heading_rad, yaw_rate_rad_s
+                        return self._with_yellow_correction(
+                            self._target_lost_continue_step(
+                                current_heading_rad, yaw_rate_rad_s
+                            ),
+                            yellow_correction,
                         )
                     target_lost_continue = True
                 else:
-                    return MotionStep.stop("push_target_lost", failed=True)
+                    return self._with_yellow_correction(
+                        MotionStep.stop("push_target_lost", failed=True),
+                        yellow_correction,
+                    )
             target_x_px = _cfg(self.config, "TARGET_CENTER_X_PX", 160.0)
             target_y_px = _cfg(self.config, "TARGET_Y_PX", 170.0)
         else:
@@ -595,32 +674,35 @@ class PushController:
         vfx *= scale
         vfy *= scale
 
-        return MotionStep(
-            (vmx, vmy, wm),
-            reason=(
-                "push_target_lost_continue"
-                if target_lost_continue
-                else "push_running_" + self.state.lower()
-            ),
-            debug={
-                "push_hazard": (
-                    None
-                    if hazard_data is None
-                    else (
-                        hazard_data["found"],
-                        hazard_data["hazard_type"],
-                        hazard_data["x"],
-                        hazard_data["y"],
-                    )
+        return self._with_yellow_correction(
+            MotionStep(
+                (vmx, vmy, wm),
+                reason=(
+                    "push_target_lost_continue"
+                    if target_lost_continue
+                    else "push_running_" + self.state.lower()
                 ),
-                "avoid_gear": self.current_gear,
-                "avoid_angle_rad": self.avoid_angle_rad,
-                "avoid_speed_scale": speed_scale,
-                "object_command": (vox, voy, target_w),
-                "predicted_main_command": (vmx, vmy, wm),
-                "predicted_follower_command": (vfx, vfy, wm),
-                "rigid_scale": scale,
-                "y_adjust_cm_s": y_adjust,
-                "contact_adjust_cm_s": contact_adjust,
-            },
+                debug={
+                    "push_hazard": (
+                        None
+                        if hazard_data is None
+                        else (
+                            hazard_data["found"],
+                            hazard_data["hazard_type"],
+                            hazard_data["x"],
+                            hazard_data["y"],
+                        )
+                    ),
+                    "avoid_gear": self.current_gear,
+                    "avoid_angle_rad": self.avoid_angle_rad,
+                    "avoid_speed_scale": speed_scale,
+                    "object_command": (vox, voy, target_w),
+                    "predicted_main_command": (vmx, vmy, wm),
+                    "predicted_follower_command": (vfx, vfy, wm),
+                    "rigid_scale": scale,
+                    "y_adjust_cm_s": y_adjust,
+                    "contact_adjust_cm_s": contact_adjust,
+                },
+            ),
+            yellow_correction,
         )

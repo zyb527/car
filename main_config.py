@@ -262,6 +262,25 @@ class PushConfig:
     HAZARD_OBSTACLE = 7  # 危险障碍物分类标识符
     HAZARD_YELLOW = 6  # 黄色避障带分类标识符
 
+    # Push 中黄线是里程坐标的两次校准基准。首次命中启动既有延时
+    # 停车计时；第二次只用于校准和关闭识别，不能重置该计时。
+    YELLOW_FIRST_CORRECTION_Y_PX = 100.0
+    YELLOW_SECOND_CORRECTION_Y_PX = 210.0
+    # 1/2=沙包，3=网球，4/5=小熊。元组为 (坐标轴, 纠正后的厘米值)。
+    YELLOW_FIRST_POSITION_BY_CLASS = {
+        1: ("x", 27.0),
+        2: ("x", 27.0),
+        3: ("y", 213.0),
+        4: ("x", 293.0),
+        5: ("x", 293.0),
+    }
+    YELLOW_SECOND_POSITION_BY_CLASS = {
+        1: ("x", 5.0),
+        2: ("x", 5.0),
+        4: ("x", 315.0),
+        5: ("x", 315.0),
+    }
+
     # 双车同侧推行编队避障几何参数
     FORMATION_BASELINE_CM = 20.0  # 双车旋转中心之间的基线物理距离（厘米）
     OBJECT_FORWARD_OFFSET_CM = 10.0  # 物体相对于旋转中心的前向距离偏移（厘米）
