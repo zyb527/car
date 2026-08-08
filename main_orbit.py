@@ -33,8 +33,6 @@ class FixedRadiusOrbitConfig(OrbitConfig):
     # 速度，不沿用旧底盘的 8.1 倍旋转换算。
     LEGACY_ROTATION_GAIN = 1.0
     ORBIT_RADIUS_TO_SPEED_SCALE = 1.0
-    LINEAR_SPEED_SCALE = 1.0
-
     # 本测试没有 ToF 数据，也不启用依赖 ToF 的半径安全带。
     ORBIT_TOF_WEIGHT = 0.0
     ORBIT_BAND_VY_ENABLED = False

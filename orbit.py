@@ -146,17 +146,16 @@ def apply_radius_band_vy(
     ):
         return vy_cmd, 0.0
 
-    scale = _cfg(config, "LINEAR_SPEED_SCALE", 0.5)
     band_vy = 0.0
     if distance_mm < orbit_radius_mm:
         band_vy = max(
-            -80.0 * scale,
-            (distance_mm - orbit_radius_mm) * 0.75 * scale,
+            -40.0,
+            (distance_mm - orbit_radius_mm) * 0.375,
         )
     elif 190.0 < distance_mm <= 320.0:
         band_vy = min(
-            45.0 * scale,
-            (distance_mm - orbit_radius_mm) * 0.25 * scale,
+            22.5,
+            (distance_mm - orbit_radius_mm) * 0.125,
         )
 
     if band_vy < 0.0:

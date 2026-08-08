@@ -39,8 +39,7 @@ from tof import ToFSensor
 
 # ================= 可以在这里临时修改全部 Approach 参数进行测试 =================
 
-# 基础比例与视觉目标位置
-ApproachConfig.LINEAR_SPEED_SCALE = 0.5             # 从旧底盘参数换算到当前底盘的线速度比例
+# 视觉目标位置
 ApproachConfig.TARGET_CENTER_X_PX = 160.0           # 希望目标位于画面中的 X 坐标（像素）
 ApproachConfig.STOP_Y_THRESHOLD_PX = 110.0          # 允许视觉停车时的图像 Y 停止阈值（像素）
 ApproachConfig.SLOW_FORWARD_X_ERROR_PX = 80.0       # X 偏差达到该值时，前进速度降到最小值（像素）

@@ -39,8 +39,7 @@ from wireless_feedforward import FeedforwardSender
 
 # ================= 可以在这里临时修改全部 Orbit 参数进行测试 =================
 
-# 基础比例与视觉目标位置
-OrbitConfig.LINEAR_SPEED_SCALE = 0.5            # 线速度全局缩放系数（新旧底盘比例转换，当前底盘平移速度统一乘以 0.5）
+# 视觉目标位置
 OrbitConfig.TARGET_CENTER_X_PX = 160.0          # 摄像头画面物理水平中心 X 坐标（像素，针对 320x240 分辨率画面）
 OrbitConfig.ORBIT_ROD_TARGET_X_PX = 65.0        # 斜推杆正前方的目标 X 像素对准点（对位完成时目标落在此点正对斜推杆）
 OrbitConfig.ORBIT_ROD_TARGET_Y_PX = 140.0       # 斜推杆正前方的目标 Y 像素对准点（对位与贴近阶段纵向深度控制基准）

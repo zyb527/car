@@ -1,14 +1,12 @@
 """主车集中配置。
 
-动作逻辑以 car141929 为基线。旧底盘线速度约 400 对应当前底盘约 200，
-因此从旧方案迁移的 vx/vy 参数统一乘 LINEAR_SPEED_SCALE=0.5；
-角速度、角度阈值和PID结构保持旧方案。
+动作逻辑以 car141929 为基线。线速度、PID 和限幅均采用当前底盘实测后的
+固定数值；角速度、角度阈值和 PID 结构保持旧方案。
 """
 
 import math
 
 CONTROL_PERIOD_MS = 20  # 控制算法循环周期（毫秒），20ms 对应 50Hz 控制频率
-LINEAR_SPEED_SCALE = 0.5  # 线速度缩放系数（旧底盘与当前底盘速度的缩放比例）
 
 INITIAL_X_CM = 0.0  # 小车初始 X 坐标（厘米）
 INITIAL_Y_CM = 0.0  # 小车初始 Y 坐标（厘米）
@@ -105,7 +103,6 @@ class NavigationConfig:
 class ApproachConfig:
     """car141929 逼近（Approach）阶段参数及当前底盘比例换算。"""
 
-    LINEAR_SPEED_SCALE = LINEAR_SPEED_SCALE  # 继承全局线速度比例系数
     TARGET_CENTER_X_PX = 160.0  # 摄像头视野中心 X 轴图像坐标（像素）
     STOP_Y_THRESHOLD_PX = 110.0  # 逼近阶段停止时目标物在图像中的目标 Y 轴坐标（像素）
     VISUAL_STOP_Y_THRESHOLD_BY_CLASS = {3: 120.0}  # 网球视觉完成靠近的 Y 像素阈值
@@ -140,7 +137,6 @@ class ApproachConfig:
 class OrbitConfig:
     """car141929 绕行（Orbit）阶段参数及当前底盘比例换算。"""
 
-    LINEAR_SPEED_SCALE = LINEAR_SPEED_SCALE  # 继承全局线速度比例系数
     TARGET_CENTER_X_PX = 160.0  # 摄像头画面物理中心 X 坐标（像素）
 
     # 绕行/对位完成后，目标需要落在此像素 X 坐标才能处于斜推杆正前方
@@ -195,19 +191,19 @@ class OrbitConfig:
     PID_CAMERA_TURN_I_LIMIT = 150.0  # 视觉转角辅助 PID 积分限幅
     PID_CAMERA_TURN_OUTPUT_LIMIT = 1.0  # 视觉转角辅助 PID 输出上限
 
-    PID_ORBIT_TOF_KP = 0.5 * LINEAR_SPEED_SCALE  # ToF 测距半径修正 PID P 增益
+    PID_ORBIT_TOF_KP = 0.25  # ToF 测距半径修正 PID P 增益
     PID_ORBIT_TOF_KI = 0.0  # ToF 测距半径修正 PID I 增益
-    PID_ORBIT_TOF_KD = 0.10 * LINEAR_SPEED_SCALE  # ToF 测距半径修正 PID D 增益
+    PID_ORBIT_TOF_KD = 0.05  # ToF 测距半径修正 PID D 增益
     PID_ORBIT_TOF_I_LIMIT = 300.0  # ToF 测距半径修正 PID 积分限幅
 
-    PID_ORBIT_Y_KP = 1.2 * LINEAR_SPEED_SCALE  # 图像 Y 轴像素偏置修正 PID P 增益
+    PID_ORBIT_Y_KP = 0.6  # 图像 Y 轴像素偏置修正 PID P 增益
     PID_ORBIT_Y_KI = 0.0  # 图像 Y 轴像素偏置修正 PID I 增益
-    PID_ORBIT_Y_KD = 0.10 * LINEAR_SPEED_SCALE  # 图像 Y 轴像素偏置修正 PID D 增益
+    PID_ORBIT_Y_KD = 0.05  # 图像 Y 轴像素偏置修正 PID D 增益
     PID_ORBIT_Y_I_LIMIT = 200.0  # 图像 Y 轴像素偏置修正 PID 积分限幅
 
-    PID_X_KP = 0.67 * LINEAR_SPEED_SCALE  # 图像 X 轴横向平移修正 PID P 增益
-    PID_X_KI = 0.03 * LINEAR_SPEED_SCALE  # 图像 X 轴横向平移修正 PID I 增益
-    PID_X_KD = 0.2 * LINEAR_SPEED_SCALE  # 图像 X 轴横向平移修正 PID D 增益
+    PID_X_KP = 0.335  # 图像 X 轴横向平移修正 PID P 增益
+    PID_X_KI = 0.015  # 图像 X 轴横向平移修正 PID I 增益
+    PID_X_KD = 0.1  # 图像 X 轴横向平移修正 PID D 增益
     PID_X_I_LIMIT = 100.0  # 图像 X 轴横向平移修正 PID 积分限幅
 
     ORBIT_ALIGN_MIN_W_RAD_S = 0.45
@@ -219,7 +215,6 @@ class OrbitConfig:
 class PushConfig:
     """推行（Push）阶段参数配置（速度已按当前底盘比例缩放）。"""
 
-    LINEAR_SPEED_SCALE = LINEAR_SPEED_SCALE  # 继承全局线速度比例系数
     # PUSH 顶层状态（普通推行和避障）发送给辅助车的三轴无线速度统一缩放。
     WIRELESS_FEEDFORWARD_SCALE = 0.9
 
@@ -229,22 +224,22 @@ class PushConfig:
     TARGET_Y_PX = 75.0
 
     PUSH_SPEED_CM_S = 100.0  # 推行阶段斜坡加速后的目标前进速度（厘米/秒）
-    PUSH_START_SPEED_CM_S = 70.0 * LINEAR_SPEED_SCALE  # 推行起步时的初始缓启速度（厘米/秒）
+    PUSH_START_SPEED_CM_S = 35.0  # 推行起步时的初始缓启速度（厘米/秒）
     PUSH_RAMP_S = 0.7  # 推行速度平滑斜坡上升斜率加速时间（秒）
     PUSH_DURATION_S = 6.0
 
-    MAX_LATERAL_SPEED_CM_S = 200.0 * LINEAR_SPEED_SCALE  # 推行过程允许的最大横向平移修正速度（厘米/秒）
-    MAX_FORWARD_ADJUST_CM_S = 180.0 * LINEAR_SPEED_SCALE  # 推行过程允许的最大前向速度调整量（厘米/秒）
+    MAX_LATERAL_SPEED_CM_S = 100.0  # 推行过程允许的最大横向平移修正速度（厘米/秒）
+    MAX_FORWARD_ADJUST_CM_S = 90.0  # 推行过程允许的最大前向速度调整量（厘米/秒）
     MAX_W_RAD_S = 1.2  # 推行过程允许的最大修正旋转角速度（弧度/秒）
     HEADING_DEADBAND_RAD = math.radians(1.0)  # 航向控制死区角度（弧度，1度）
     HEADING_KP = 2.0  # 保持推行直线的航向 P 增益
     HEADING_KD = 0.2  # 保持推行直线的航向 D 增益
 
-    PID_X_KP = 0.67 * LINEAR_SPEED_SCALE  # 横向 X 轴像素纠偏 PID P 增益
-    PID_X_KI = 0.03 * LINEAR_SPEED_SCALE  # 横向 X 轴像素纠偏 PID I 增益
-    PID_X_KD = 0.2 * LINEAR_SPEED_SCALE  # 横向 X 轴像素纠偏 PID D 增益
+    PID_X_KP = 0.335  # 横向 X 轴像素纠偏 PID P 增益
+    PID_X_KI = 0.015  # 横向 X 轴像素纠偏 PID I 增益
+    PID_X_KD = 0.1  # 横向 X 轴像素纠偏 PID D 增益
     PID_X_I_LIMIT = 100.0  # 横向 X 轴像素纠偏 PID 积分限幅
-    PID_Y_KP = 0.6 * LINEAR_SPEED_SCALE  # 纵向 Y 轴像素纠偏 PID P 增益
+    PID_Y_KP = 0.3  # 纵向 Y 轴像素纠偏 PID P 增益
     PID_Y_KI = 0.0  # 纵向 Y 轴像素纠偏 PID I 增益
     PID_Y_KD = 0.0  # 纵向 Y 轴像素纠偏 PID D 增益
     PID_Y_I_LIMIT = 200.0  # 纵向 Y 轴像素纠偏 PID 积分限幅
@@ -252,11 +247,11 @@ class PushConfig:
     TOF_VALID_MIN_MM = 20.0  # ToF 传感器有效读数最小下门限（毫米）
     TOF_VALID_MAX_MM = TOF_VALID_MAX_MM
     CONTACT_DISTANCE_MM = 30.0  # 推杆贴靠目标的触发接触距离（毫米）
-    CONTACT_KP = 1.5 * LINEAR_SPEED_SCALE  # 推杆接触控制 PID P 增益
-    CONTACT_KI = 0.05 * LINEAR_SPEED_SCALE  # 推杆接触控制 PID I 增益
-    CONTACT_KD = 0.2 * LINEAR_SPEED_SCALE  # 推杆接触控制 PID D 增益
+    CONTACT_KP = 0.75  # 推杆接触控制 PID P 增益
+    CONTACT_KI = 0.025  # 推杆接触控制 PID I 增益
+    CONTACT_KD = 0.1  # 推杆接触控制 PID D 增益
     CONTACT_I_LIMIT = 100.0  # 推杆接触控制 PID 积分限幅
-    CONTACT_MAX_ADJUST_CM_S = 80.0 * LINEAR_SPEED_SCALE  # 接触调整最大修正速度上限（厘米/秒）
+    CONTACT_MAX_ADJUST_CM_S = 40.0  # 接触调整最大修正速度上限（厘米/秒）
 
     YELLOW_STOP_DELAY_S = 0.3  # 黄线命中后的继续推行及后续硬停保持时间（秒）
     HAZARD_OBSTACLE = 7  # 危险障碍物分类标识符
