@@ -9,6 +9,13 @@ LCD_DISPLAY_ENABLED =True
 
 # ================= ID 定义 =================
 CLASS_ID_YELLOW = 6
+TARGET_NAME_BY_ID = {
+    1: "redbag",
+    2: "bluebag",
+    3: "ball",
+    4: "brownbear",
+    5: "whitebear",
+}
 
 # ================= 硬件初始化 =================
 sensor.reset()
@@ -48,9 +55,11 @@ clock = time.clock()
 # 发送限制
 TX_MIN_INTERVAL_MS = 20 # 50Hz max
 last_sent_ms = 0
+last_detected_target = None
+last_sent_fields = None
 
 def send_8_fields(t_found, t_x, t_y, t_id, h_found, h_x, h_y, h_type):
-    global last_sent_ms
+    global last_sent_ms, last_sent_fields
     now = time.ticks_ms()
     if time.ticks_diff(now, last_sent_ms) < TX_MIN_INTERVAL_MS:
         return
@@ -70,6 +79,16 @@ def send_8_fields(t_found, t_x, t_y, t_id, h_found, h_x, h_y, h_type):
     try:
         uart.write(data_str.encode())
         last_sent_ms = now
+        last_sent_fields = (
+            1 if t_found else 0,
+            t_x * 2.0,
+            t_y * 2.0,
+            t_id,
+            1 if h_found else 0,
+            h_x * 2.0,
+            h_y * 2.0,
+            h_type,
+        )
     except Exception as e:
         print("UART Tx Err:", e)
 
@@ -104,6 +123,16 @@ while True:
 
     t_found, t_x, t_y, t_id = target_tuple
     h_found_b, h_x_b, h_y_b, h_type_b = brick_tuple
+
+    # 仅记录最近一次真正识别到的任务物体。后续丢帧时保持显示，
+    # brick 和 yellow 不进入这份历史记录。
+    if t_found and t_id in TARGET_NAME_BY_ID:
+        last_detected_target = (
+            TARGET_NAME_BY_ID[t_id],
+            t_id,
+            t_x,
+            t_y,
+        )
 
     # 传统色块：黄线检测
     h_found_y, h_x_y, h_y_y, yellow_blob = False, 0.0, 0.0, None
@@ -173,20 +202,46 @@ while True:
                 disp_img.draw_string(165, 35, "X : --", color=(128, 128, 128), scale=1)
                 disp_img.draw_string(165, 50, "Y : --", color=(128, 128, 128), scale=1)
 
-            disp_img.draw_string(165, 75, "--- HAZARD ---", color=(255, 255, 255), scale=1)
+            disp_img.draw_string(165, 65, "--- HAZARD ---", color=(255, 255, 255), scale=1)
             if h_found:
                 h_name = "yellow" if h_type == CLASS_ID_YELLOW else ("brick" if h_type == 7 else "hazard")
-                disp_img.draw_string(165, 90, "ID: %d (%s)" % (h_type, h_name), color=(255, 0, 255), scale=1)
-                disp_img.draw_string(165, 105, "X : %d" % int(h_x), color=(0, 255, 255), scale=1)
-                disp_img.draw_string(165, 120, "Y : %d" % int(h_y), color=(0, 255, 255), scale=1)
+                disp_img.draw_string(165, 80, "ID: %d (%s)" % (h_type, h_name), color=(255, 0, 255), scale=1)
+                disp_img.draw_string(165, 95, "X : %d" % int(h_x), color=(0, 255, 255), scale=1)
+                disp_img.draw_string(165, 110, "Y : %d" % int(h_y), color=(0, 255, 255), scale=1)
             else:
-                disp_img.draw_string(165, 90, "ID: None", color=(128, 128, 128), scale=1)
-                disp_img.draw_string(165, 105, "X : --", color=(128, 128, 128), scale=1)
-                disp_img.draw_string(165, 120, "Y : --", color=(128, 128, 128), scale=1)
+                disp_img.draw_string(165, 80, "ID: None", color=(128, 128, 128), scale=1)
+                disp_img.draw_string(165, 95, "X : --", color=(128, 128, 128), scale=1)
+                disp_img.draw_string(165, 110, "Y : --", color=(128, 128, 128), scale=1)
 
-            disp_img.draw_string(165, 145, "--- STATUS ---", color=(255, 255, 255), scale=1)
-            disp_img.draw_string(165, 160, "FPS: %.1f" % clock.fps(), color=(255, 255, 255), scale=1)
-            disp_img.draw_string(165, 175, "State: %s" % status, color=(255, 255, 255), scale=1)
+            disp_img.draw_string(165, 125, "--- STATUS ---", color=(255, 255, 255), scale=1)
+            disp_img.draw_string(165, 140, "FPS: %.1f" % clock.fps(), color=(255, 255, 255), scale=1)
+            disp_img.draw_string(165, 155, "State: %s" % status, color=(255, 255, 255), scale=1)
+
+            # 最近识别到的任务物体：即使当前帧丢失也继续保留。
+            disp_img.draw_string(165, 175, "--- LAST OBJ ---", color=(255, 255, 0), scale=1)
+            if last_detected_target is not None:
+                last_name, last_id, last_x, last_y = last_detected_target
+                disp_img.draw_string(165, 190, "%s ID:%d" % (last_name, last_id), color=(0, 255, 0), scale=1)
+                disp_img.draw_string(165, 205, "X:%d Y:%d" % (int(last_x), int(last_y)), color=(0, 255, 255), scale=1)
+            else:
+                disp_img.draw_string(165, 190, "None", color=(128, 128, 128), scale=1)
+
+            # 最近一次 UART 实际发送成功的完整 8 字段信息，拆成 target
+            # 与 hazard 两行显示；坐标与线上数据一致，均为 320x240 坐标。
+            disp_img.draw_string(5, 130, "--- LAST TX ---", color=(255, 255, 0), scale=1)
+            if last_sent_fields is not None:
+                disp_img.draw_string(
+                    5, 145,
+                    "T:%d,%.1f,%.1f,%d" % last_sent_fields[0:4],
+                    color=(0, 255, 0), scale=1
+                )
+                disp_img.draw_string(
+                    5, 160,
+                    "H:%d,%.1f,%.1f,%d" % last_sent_fields[4:8],
+                    color=(255, 0, 255), scale=1
+                )
+            else:
+                disp_img.draw_string(5, 145, "None", color=(128, 128, 128), scale=1)
 
             # 在屏幕左下角显示模型加载状态
             if tracker.model_loaded:
