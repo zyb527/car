@@ -454,7 +454,7 @@ class MainTaskController:
                 self._transition(MainTaskState.WAIT_TARGET)
                 return MotionStep.stop(
                     "waypoint_reached_waiting_for_target",
-                    debug={"state": self.state},
+                    debug={"hard_stop": True, "state": self.state},
                 )
             return result
 
@@ -721,13 +721,39 @@ def _startup_delay():
     _sleep_ms(MissionConfig.START_DELAY_MS)
 
 
+def _create_pose_debug_uart():
+    """按配置创建用于输出主车世界位姿的 UART。"""
+    if not MissionConfig.POSE_DEBUG_UART_ENABLED:
+        return None
+    from machine import UART
+
+    uart = UART(MissionConfig.POSE_DEBUG_UART_ID)
+    uart.init(MissionConfig.POSE_DEBUG_UART_BAUD)
+    return uart
+
+
+def _write_pose_debug(uart, pose):
+    """通过调试串口发送一行易于串口助手读取的 ASCII 位姿。"""
+    if uart is None:
+        return
+    uart.write(
+        "POSE,x_cm={:.2f},y_cm={:.2f},heading_deg={:.2f}\r\n".format(
+            float(pose[0]),
+            float(pose[1]),
+            math.degrees(float(pose[2])),
+        )
+    )
+
+
 def main():
     """硬件入口：每 20 ms 轮询视觉并刷新电机命令，不执行文件写入。"""
     motor = None
     sender = None
+    pose_debug_uart = None
     try:
         odometry = OdometrySystem()
         motor = MotorSystem(odometry=odometry)
+        pose_debug_uart = _create_pose_debug_uart()
         vision = VisionReceiver(
             uart_id=MissionConfig.MAIN_CAMERA_UART_ID,
             baud=MissionConfig.MAIN_CAMERA_BAUD,
@@ -770,6 +796,9 @@ def main():
         controller.reset(odometry.get_pose())
 
         last_control_ms = _ticks_ms() - MissionConfig.CONTROL_PERIOD_MS
+        last_pose_debug_ms = (
+            _ticks_ms() - MissionConfig.POSE_DEBUG_UART_PERIOD_MS
+        )
         previous_state = None
         previous_reason = None
         previous_push_hazard = None
@@ -856,6 +885,13 @@ def main():
                     straight_without_w=suppress_feedforward_w,
                     output_scale=feedforward_output_scale,
                 )
+            if (
+                pose_debug_uart is not None
+                and _ticks_diff(now_ms, last_pose_debug_ms)
+                >= MissionConfig.POSE_DEBUG_UART_PERIOD_MS
+            ):
+                _write_pose_debug(pose_debug_uart, odometry.get_pose())
+                last_pose_debug_ms = now_ms
             _sleep_ms(1)
     except KeyboardInterrupt:
         print("test stopped")

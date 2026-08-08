@@ -337,6 +337,11 @@ class MissionConfig:
     """顶层状态机、通信周期和安全超时。"""
 
     CONTROL_PERIOD_MS = CONTROL_PERIOD_MS
+    # 无线串口位姿调试。开启后通过 UART0 每 200 ms 输出一次世界坐标和航向。
+    POSE_DEBUG_UART_ENABLED = False
+    POSE_DEBUG_UART_ID = 0
+    POSE_DEBUG_UART_BAUD = 115200
+    POSE_DEBUG_UART_PERIOD_MS = 200
     FEEDFORWARD_ENABLED = True
     FEEDFORWARD_TX_PERIOD_MS = 10
     # 无线前馈 = 实测速度 * 此权重 + S 曲线目标指令 * (1 - 此权重)。

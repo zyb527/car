@@ -90,11 +90,18 @@ class CoordinatePatrolController:
         )
         if heading_deg is not None:
             return math.radians(float(heading_deg))
-        if pose is None:
-            return None
+        if self.segment_start is None:
+            if pose is None:
+                return None
+            start_x = float(pose[0])
+            start_y = float(pose[1])
+        else:
+            start_x, start_y = self.segment_start
         target_x = float(_waypoint_value(waypoint, "x", 0))
         target_y = float(_waypoint_value(waypoint, "y", 1))
-        return math.atan2(target_y - pose[1], target_x - pose[0])
+        path_x = target_x - start_x
+        path_y = target_y - start_y
+        return math.atan2(path_y, path_x)
 
     def _along_speed(self, remaining_cm):
         cfg = self.config
