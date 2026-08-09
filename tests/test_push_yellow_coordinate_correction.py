@@ -14,6 +14,7 @@ from main import (  # noqa: E402
     C4StatusLED,
     MainTaskController,
     MainTaskState,
+    PushCorrectionLED,
     _apply_push_coordinate_correction,
 )
 from main_config import PushConfig  # noqa: E402
@@ -50,7 +51,7 @@ class FakePin:
     OUT = 1
     instances = []
 
-    def __init__(self, name, mode):
+    def __init__(self, name="C4", mode=1, *args, **kwargs):
         self.name = name
         self.mode = mode
         self.values = []
@@ -205,6 +206,30 @@ class PushYellowCoordinateCorrectionTests(unittest.TestCase):
             self.assertEqual(FakePin.instances[0].values, [1])
             led.on()
             self.assertEqual(FakePin.instances[0].values, [1, 0])
+
+    def test_c4_led_is_active_low_and_turns_off_after_two_seconds(self):
+        pin = FakePin()
+        led = PushCorrectionLED(duration_ms=2000, pin=pin)
+        self.assertEqual(pin.values[-1], True)
+
+        led.trigger(100)
+        self.assertEqual(pin.values[-1], False)
+        led.update(2099)
+        self.assertEqual(pin.values[-1], False)
+        led.update(2100)
+        self.assertEqual(pin.values[-1], True)
+
+    def test_later_correction_restarts_c4_two_second_window(self):
+        pin = FakePin()
+        led = PushCorrectionLED(duration_ms=2000, pin=pin)
+        led.trigger(100)
+        led.trigger(1000)
+        led.update(2100)
+        self.assertTrue(led.active)
+        self.assertEqual(pin.values[-1], False)
+        led.update(3000)
+        self.assertFalse(led.active)
+        self.assertEqual(pin.values[-1], True)
 
     def test_tennis_event_closes_camera_yellow_detection_in_main_controller(self):
         vision = FakeVision()

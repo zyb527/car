@@ -111,6 +111,9 @@ class ApproachConfig:
 
     APPROACH_SPEED_CM_S = 100.0
     MIN_APPROACH_SPEED_CM_S = 30.0
+    TENNIS_MIN_APPROACH_SPEED_CM_S = 15.0
+    # 网球单独保留视觉 Y 方向减速起点，方便不影响其他目标地调参。
+    TENNIS_APPROACH_Y_SLOW_START_PX = 50.0
     TOF_SLOW_START_MM = 500.0  # ToF 激光传感器开始触发减速前行进给的距离门限（毫米）
 
     STOP_DISTANCE_MM = TOF_ORBIT_ENTRY_MM
@@ -178,6 +181,7 @@ class OrbitConfig:
 
     TOF_VALID_MIN_MM = 20.0  # ToF 传感器有效读数最小下门限（毫米）
     TOF_VALID_MAX_MM = TOF_VALID_MAX_MM
+    TOF_FRAME_JUMP_REJECT_MM = 90.0  # 单帧相对上一有效帧的突变超过此值时沿用上一帧（毫米）
     TOF_EMERGENCY_MM = TOF_EMERGENCY_MM
     TOF_EMERGENCY_RELEASE_MM = TOF_EMERGENCY_RELEASE_MM
     TOF_EMERGENCY_RETREAT_SPEED_CM_S = 20.0
@@ -327,6 +331,7 @@ class GarageConfig:
 
     # 回库逻辑参数
     X_ADJUST_DISTANCE_CM = 50.0
+    TENNIS_LEFT_SHIFT_DISTANCE_CM = 50.0
     YELLOW_Y_THRESHOLD_PX = 60.0
     LATERAL_MAX_Y_CM = -50.0
     LATERAL_TIMEOUT_S = 5.0
@@ -342,6 +347,10 @@ class MissionConfig:
     POSE_DEBUG_UART_ID = 0
     POSE_DEBUG_UART_BAUD = 115200
     POSE_DEBUG_UART_PERIOD_MS = 200
+    # C4 为低电平点亮。每次 Push 黄线坐标校正后非阻塞点亮 2 秒；
+    # 其余时间保持关闭，不占用控制循环的 sleep/等待时间。
+    PUSH_CORRECTION_LED_PIN = "C4"
+    PUSH_CORRECTION_LED_DURATION_MS = 2000
     FEEDFORWARD_ENABLED = True
     FEEDFORWARD_TX_PERIOD_MS = 10
     # 无线前馈 = 实测速度 * 此权重 + S 曲线目标指令 * (1 - 此权重)。

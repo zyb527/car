@@ -9,6 +9,9 @@ FORWARD:
 LATERAL_INWARD:
     The car faces the inside of the square on every edge and moves laterally.
 
+ROTATE_CCW:
+    The car turns counterclockwise once in place and reports coordinate drift.
+
 UART0 emits one CSV-like ODOM record every 150 ms. Coordinates are centimetres.
 """
 
@@ -22,12 +25,17 @@ except ImportError:
 
 from main_config import NavigationConfig
 from motor import MotorSystem
-from navigation import CoordinatePatrolController, HeadingTurnController
+from navigation import (
+    CoordinatePatrolController,
+    CounterclockwiseTurnController,
+    HeadingTurnController,
+)
 from odometry import OdometrySystem
 
 
 MODE_FORWARD = "FORWARD"
 MODE_LATERAL_INWARD = "LATERAL_INWARD"
+MODE_ROTATE_CCW = "ROTATE_CCW"
 
 # Change only this line to select the test mode.
 TEST_MODE = MODE_FORWARD
@@ -39,6 +47,7 @@ UART_BAUD = 115200
 START_DELAY_MS = 2000
 HEADING_RESET_TIMEOUT_MS = 500
 SEGMENT_TIMEOUT_MS = 15000
+FULL_TURN_RAD = 2.0 * math.pi
 
 
 class SquareNavigationConfig(NavigationConfig):
@@ -161,9 +170,105 @@ def _reset_initial_pose(odometry, heading_rad):
         _sleep_ms(1)
 
 
+def _run_rotation_test():
+    """Turn once in place and report the odometry position drift."""
+    uart = UART(UART_ID)
+    uart.init(UART_BAUD)
+    waypoint = (0.0, 0.0, 360.0)
+    odometry = None
+    motor = None
+    try:
+        odometry = OdometrySystem()
+        motor = MotorSystem(odometry=odometry)
+        turn = CounterclockwiseTurnController(SquareNavigationConfig)
+        motor.start()
+        motor.hard_stop()
+        _uart_write(
+            uart,
+            "EVENT,name=STARTUP_HOLD,mode={},duration_ms={}".format(
+                TEST_MODE, START_DELAY_MS
+            ),
+        )
+        _sleep_ms(START_DELAY_MS)
+        _reset_initial_pose(odometry, 0.0)
+        turn.start(odometry.get_pose()[2])
+
+        start_ms = _ticks_ms()
+        last_control_ms = start_ms - CONTROL_PERIOD_MS
+        last_uart_ms = start_ms - UART_PERIOD_MS
+        _event(uart, "TEST_START", "ROTATE", 0, waypoint, odometry.get_pose())
+
+        while True:
+            now_ms = _ticks_ms()
+            pose = odometry.get_pose()
+            state = odometry.get_state()
+            if _ticks_diff(now_ms, last_uart_ms) >= UART_PERIOD_MS:
+                _send_odometry(
+                    uart,
+                    _ticks_diff(now_ms, start_ms),
+                    "ROTATE",
+                    0,
+                    waypoint,
+                    pose,
+                    state,
+                )
+                last_uart_ms = now_ms
+            if _ticks_diff(now_ms, last_control_ms) < CONTROL_PERIOD_MS:
+                _sleep_ms(1)
+                continue
+
+            dt = max(
+                0.001,
+                min(_ticks_diff(now_ms, last_control_ms) / 1000.0, 0.1),
+            )
+            last_control_ms = now_ms
+            result = turn.step(
+                pose[2], state["yaw_rate_rad_s"], dt, angle_rad=FULL_TURN_RAD
+            )
+            if result.failed:
+                raise RuntimeError(result.reason)
+            if not result.done:
+                motor.apply_motion_step(result)
+                continue
+
+            motor.hard_stop()
+            final_pose = odometry.get_pose()
+            drift_cm = math.sqrt(final_pose[0] ** 2 + final_pose[1] ** 2)
+            _event(
+                uart,
+                "TEST_COMPLETE",
+                "STOP",
+                0,
+                waypoint,
+                final_pose,
+                "rotation_coordinate_drift_cm={:.3f}".format(drift_cm),
+            )
+            return
+    except KeyboardInterrupt:
+        _uart_write(uart, "EVENT,name=INTERRUPTED,mode={}".format(TEST_MODE))
+    except Exception as error:
+        _uart_write(
+            uart,
+            "EVENT,name=ERROR,mode={},detail={}".format(TEST_MODE, repr(error)),
+        )
+        try:
+            import sys
+
+            sys.print_exception(error)
+        except Exception:
+            pass
+    finally:
+        if motor is not None:
+            motor.hard_stop()
+            motor.stop()
+
+
 def main():
     if UART is None:
         raise RuntimeError("machine.UART is required; run this test on the car")
+
+    if TEST_MODE == MODE_ROTATE_CCW:
+        return _run_rotation_test()
 
     waypoints = _mode_waypoints(TEST_MODE)
     initial_heading_rad = math.radians(waypoints[0][2])

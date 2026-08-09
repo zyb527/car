@@ -71,10 +71,10 @@ class OdometryConfig:
 
         self.initial_heading_rad = 0.0
         # 右移实车测试：里程计显示 143.48 cm，实际横向位移约 180 cm。
-        self.lateral_distance_scale = 1.255
+        self.lateral_distance_scale = 0.6275
         # 前向 100 cm 里程计积分测试：旧比例下里程计到 100 cm 时，
         # 地面实测约为 54 cm；故 1.263 * 54 / 100 = 0.682。
-        self.forward_distance_scale = 0.682
+        self.forward_distance_scale = 0.6138
 
 
 class MahonyAHRS:

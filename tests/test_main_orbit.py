@@ -37,6 +37,36 @@ from vision import VisionReceiver
 from wireless_feedforward import FeedforwardSender
 
 
+# ================= 可以在这里临时修改全部 Approach 参数进行测试 =================
+
+# 目标位置、减速与对准门限
+ApproachConfig.TARGET_CENTER_X_PX = 160.0       # 摄像头视野中心 X 轴图像坐标（像素）
+ApproachConfig.STOP_Y_THRESHOLD_PX = 110.0     # 逼近阶段停止时目标物在图像中的目标 Y 轴坐标（像素）
+ApproachConfig.SLOW_FORWARD_X_ERROR_PX = 80.0 # 当 X 轴偏差大于该值时触发减速前行（像素）
+ApproachConfig.APPROACH_Y_SLOW_START_PX = 50.0 # 图像 Y 轴方向接近目标时开始前向减速的距离（像素）
+ApproachConfig.TENNIS_APPROACH_Y_SLOW_START_PX = 45.0 # 网球独立的图像 Y 减速起点（像素）
+
+# 逼近速度与 ToF 停止门限
+ApproachConfig.APPROACH_SPEED_CM_S = 100.0    # 逼近最大前进速度（厘米/秒）
+ApproachConfig.MIN_APPROACH_SPEED_CM_S = 25.0 # 逼近最小前进速度（厘米/秒）
+ApproachConfig.TENNIS_MIN_APPROACH_SPEED_CM_S = 15.0 # 网球逼近最小前进速度（厘米/秒）
+ApproachConfig.TOF_SLOW_START_MM = 500.0      # ToF 传感器开始触发减速前行的距离门限（毫米）
+ApproachConfig.STOP_DISTANCE_MM = 170.0       # 普通目标逼近停止 / 入轨切换 ToF 距离门限（毫米）
+ApproachConfig.TENNIS_STOP_DISTANCE_MM = 200.0 # 网球目标逼近停止 ToF 距离门限（毫米）
+
+# 视觉对准与控制超时
+ApproachConfig.TARGET_ALIGN_ERROR_PX = 10.0  # 逼近阶段视觉横向对准误差允许门限（像素）
+ApproachConfig.ALIGN_TIMEOUT_S = 1.0          # 逼近阶段视觉对准等待的最大超时时间（秒）
+ApproachConfig.TARGET_LOSS_DECAY_S = 0.4      # 丢失视觉目标后速度平滑衰减归零时间（秒）
+ApproachConfig.MAX_XY_SPEED_CM_S = 100.0      # 逼近阶段综合平移最大速度上限（厘米/秒）
+
+# 逼近阶段角速度 PID
+ApproachConfig.PID_APPROACH_W_KP = 0.012          # 逼近阶段角速度 PID 比例 P 增益
+ApproachConfig.PID_APPROACH_W_KI = 0.0            # 逼近阶段角速度 PID 积分 I 增益
+ApproachConfig.PID_APPROACH_W_KD = 0.0            # 逼近阶段角速度 PID 微分 D 增益
+ApproachConfig.PID_APPROACH_W_OUTPUT_LIMIT = 3.0 # 逼近阶段角速度 PID 输出上限（弧度/秒）
+ApproachConfig.PID_APPROACH_W_I_LIMIT = 100.0     # 逼近阶段角速度 PID 积分限幅
+
 # ================= 可以在这里临时修改全部 Orbit 参数进行测试 =================
 
 # 视觉目标位置
@@ -71,11 +101,11 @@ OrbitConfig.ORBIT_SLOW_DOWN_START_RAD = math.radians(30.0)  # 接近绕行终点
 OrbitConfig.ORBIT_SLOW_DOWN_MIN_SCALE = 0.32                 # 绕行终点降速的最小角速度下限比例（基准角速度的 32%）
 
 # ALIGN / CLOSE_IN 阶段的航向保持
-OrbitConfig.ORBIT_ALIGN_KP = 0.55                            # 对位与贴靠阶段靠 IMU 维持目标航向角 proportional 增益 P
-OrbitConfig.ORBIT_ALIGN_KD = 0.032                           # 对位与贴靠阶段靠 IMU 维持目标航向角 derivative 增益 D（抑制抖动）
+OrbitConfig.ORBIT_ALIGN_KP = 0.52                            # 对位与贴靠阶段靠 IMU 维持目标航向角 proportional 增益 P
+OrbitConfig.ORBIT_ALIGN_KD = 0.03                          # 对位与贴靠阶段靠 IMU 维持目标航向角 derivative 增益 D（抑制抖动）
 OrbitConfig.ORBIT_ALIGN_MAX_W_RAD_S = 3.0                    # 姿态角保持阶段允许的最大修正角速度（弧度/秒）
-OrbitConfig.ORBIT_ALIGN_MIN_W_RAD_S = 0.45                   # 克服电机静摩擦力的最小补偿旋转角速度（弧度/秒）
-OrbitConfig.ORBIT_ALIGN_MIN_W_ERROR_RAD = math.radians(2.0)  # 触发静摩擦补偿的角度残差门限（弧度，偏差大于 2 度时生效）
+OrbitConfig.ORBIT_ALIGN_MIN_W_RAD_S = 0.40                  # 克服电机静摩擦力的最小补偿旋转角速度（弧度/秒）
+OrbitConfig.ORBIT_ALIGN_MIN_W_ERROR_RAD = math.radians(3.0)  # 触发静摩擦补偿的角度残差门限（弧度，偏差大于 2 度时生效）
 
 # CLOSE_IN 的 ToF 安全距离
 OrbitConfig.ORBIT_CLOSE_IN_TENNIS_STOP_MM = 120.0       # 网球（Class 3）贴近停止门限（毫米，向前贴近至 120mm 时停止）
@@ -87,7 +117,7 @@ OrbitConfig.TOF_EMERGENCY_RELEASE_MM = 160.0            # 紧急后退防撞解�
 OrbitConfig.TOF_EMERGENCY_RETREAT_SPEED_CM_S = 20.0    # 触发防撞紧急状态时的后退撤退速度（厘米/秒）
 
 # 总体输出、稳定判定与测试保持行为
-OrbitConfig.MAX_XY_SPEED_CM_S = 100.0      # 绕行模块综合平移合速度上限（厘米/秒，限制 sqrt(vx^2 + vy^2) <= 100）
+OrbitConfig.MAX_XY_SPEED_CM_S = 120.0      # 绕行模块综合平移合速度上限（厘米/秒，限制 sqrt(vx^2 + vy^2) <= 100）
 OrbitConfig.PUSH_READY_STABLE_S = 0.20     # 进入 Push 状态前的稳定保持时间（秒，角度与 X/Y 轴偏差同时合格且保持 0.2s 才切入 Push）
 OrbitConfig.CONTINUOUS_HOLD = True         # 持续微调保持模式（True: 忽视 1 秒超时报错，持续调节直到完成；False: 超时 1 秒报失败）
 OrbitConfig.TARGET_LOSS_DECAY_S = 0.4      # 丢失视觉目标后速度平滑衰减归零的减速缓冲时间（秒）
@@ -102,7 +132,7 @@ OrbitConfig.PID_CAMERA_TURN_OUTPUT_LIMIT = 1.0     # 视觉转角辅助 PID 输�
 # 绕行阶段：ToF 半径误差到径向速度的 PID
 OrbitConfig.PID_ORBIT_TOF_KP = 0.25                # ToF 测距半径修正 PID 比例 P 增益
 OrbitConfig.PID_ORBIT_TOF_KI = 0.0                 # ToF 测距半径修正 PID 积分 I 增益
-OrbitConfig.PID_ORBIT_TOF_KD = 0.05                # ToF 测距半径修正 PID 微分 D 增益
+OrbitConfig.PID_ORBIT_TOF_KD = 0.025                # ToF 测距半径修正 PID 微分 D 增益
 OrbitConfig.PID_ORBIT_TOF_I_LIMIT = 300.0          # ToF 测距半径修正 PID 积分限幅
 
 # 绕行及 CLOSE_IN：视觉 Y 偏差到前后速度的 PID
@@ -413,3 +443,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+

@@ -10,6 +10,7 @@ if PROJECT_DIR not in sys.path:
 from control import MotionStep  # noqa: E402
 from main import MainTaskController, MainTaskState  # noqa: E402
 from main_config import MissionConfig, PushConfig  # noqa: E402
+from push import PushController, State  # noqa: E402
 
 
 class FakeVision:
@@ -101,6 +102,42 @@ class PushCameraFilterTests(unittest.TestCase):
 
         self.assertEqual(vision.unlock_count, 1)
         self.assertEqual(vision.yellow_events, [False])
+
+    def test_yellow_stop_delay_ignores_later_obstacle_frames(self):
+        controller = PushController(PushConfig)
+        controller.start(0.0, class_id=1)
+        yellow = {
+            "found": True,
+            "hazard_type": PushConfig.HAZARD_YELLOW,
+            "x": 65.0,
+            "y": 101.0,
+            "frame_sequence": 1,
+            "frame_ms": 0,
+        }
+        obstacle = {
+            "found": True,
+            "hazard_type": PushConfig.HAZARD_OBSTACLE,
+            "x": 65.0,
+            "y": 90.0,
+            "frame_sequence": 2,
+            "frame_ms": 50,
+        }
+
+        controller.step(target(), 30.0, 0.0, hazard=yellow, dt=0.05)
+        during_delay = controller.step(
+            target(), 30.0, 0.0, hazard=obstacle, dt=0.10
+        )
+
+        self.assertEqual(controller.state, State.YELLOW_DELAY)
+        self.assertEqual(during_delay.reason, "push_running_yellow_delay")
+        self.assertEqual(during_delay.debug["avoid_gear"], 0)
+
+        controller.step(target(), 30.0, 0.0, hazard=obstacle, dt=0.10)
+        stopped = controller.step(
+            target(), 30.0, 0.0, hazard=obstacle, dt=0.11
+        )
+        self.assertTrue(stopped.done)
+        self.assertEqual(stopped.reason, "push_yellow_line_hard_stop")
 
 
 if __name__ == "__main__":

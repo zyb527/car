@@ -44,10 +44,12 @@ ApproachConfig.TARGET_CENTER_X_PX = 160.0           # 希望目标位于画面�
 ApproachConfig.STOP_Y_THRESHOLD_PX = 110.0          # 允许视觉停车时的图像 Y 停止阈值（像素）
 ApproachConfig.SLOW_FORWARD_X_ERROR_PX = 80.0       # X 偏差达到该值时，前进速度降到最小值（像素）
 ApproachConfig.APPROACH_Y_SLOW_START_PX = 50.0      # 图像 Y 达到该值后开始减速（像素）
+ApproachConfig.TENNIS_APPROACH_Y_SLOW_START_PX = 50.0  # 网球独立的图像 Y 减速起点（像素）
  
 # 前进速度
 ApproachConfig.APPROACH_SPEED_CM_S = 100.0          # 接近阶段最大前进速度（cm/s）
 ApproachConfig.MIN_APPROACH_SPEED_CM_S = 30.0       # 接近阶段最小前进速度（cm/s）
+ApproachConfig.TENNIS_MIN_APPROACH_SPEED_CM_S = 15.0  # 网球接近阶段最小前进速度（cm/s）
 ApproachConfig.MAX_XY_SPEED_CM_S = 100.0            # Approach 平面合速度上限（cm/s）
 
 # ToF 距离与停车条件
