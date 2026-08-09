@@ -385,8 +385,12 @@ class PushController:
         avoidance_enabled = _cfg(
             self.config, "PUSH_AVOIDANCE_ENABLED", True
         )
+        # 黄线已经触发后，剩余 0.3 s 只负责完成延迟停车。即使这期间
+        # 相机又上报砖块，也不得重新进入或恢复避障状态。
+        yellow_stop_pending = self.state == State.YELLOW_DELAY
         obstacle_found = bool(
-            hazard_data
+            not yellow_stop_pending
+            and hazard_data
             and hazard_data["found"]
             and hazard_data["hazard_type"]
             == _cfg(self.config, "HAZARD_OBSTACLE", 7)

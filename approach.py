@@ -21,6 +21,12 @@ def _legacy_config(config):
         "approach_y_slow_start": config.APPROACH_Y_SLOW_START_PX,
         "slow_forward_x_error": config.SLOW_FORWARD_X_ERROR_PX,
         "min_approach_speed": config.MIN_APPROACH_SPEED_CM_S,
+        "tennis_min_approach_speed": (
+            config.TENNIS_MIN_APPROACH_SPEED_CM_S
+        ),
+        "tennis_approach_y_slow_start": (
+            config.TENNIS_APPROACH_Y_SLOW_START_PX
+        ),
         "approach_tof_profile_enabled": True,
         "approach_tof_slow_start_mm": config.TOF_SLOW_START_MM,
         "stop_distance_mm": config.STOP_DISTANCE_MM,
@@ -31,6 +37,15 @@ def _legacy_config(config):
     }
 
 
+def _min_approach_speed(config, obj_class):
+    if obj_class == 3:
+        return config.get(
+            "tennis_min_approach_speed",
+            config["min_approach_speed"],
+        )
+    return config["min_approach_speed"]
+
+
 def calc_visual_approach_vy(
     error_x,
     target_y,
@@ -38,7 +53,7 @@ def calc_visual_approach_vy(
     obj_class=0,
 ):
     approach_speed = config["approach_speed"]
-    min_speed = config["min_approach_speed"]
+    min_speed = _min_approach_speed(config, obj_class)
     slow_x = max(config["slow_forward_x_error"], 1)
 
     if abs(error_x) >= slow_x:
@@ -54,7 +69,10 @@ def calc_visual_approach_vy(
         120,
     )
     if obj_class == 3:
-        approach_y_slow_start = 50
+        approach_y_slow_start = config.get(
+            "tennis_approach_y_slow_start",
+            approach_y_slow_start,
+        )
 
     if target_y >= approach_y_slow_start:
         y_span = max(
@@ -75,9 +93,10 @@ def calc_tof_approach_vy(
     tof_distance_mm,
     config,
     target_stop_dist,
+    obj_class=0,
 ):
     approach_speed = config["approach_speed"]
-    min_speed = config["min_approach_speed"]
+    min_speed = _min_approach_speed(config, obj_class)
     stop_mm = target_stop_dist
 
     if (
@@ -131,6 +150,7 @@ def calc_approach_command(
         tof_distance_mm,
         config,
         target_stop_dist,
+        obj_class,
     )
     vy = min(vy, vy_tof)
     w = approach_w_pid.update(-error_x, dt)

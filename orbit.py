@@ -316,6 +316,7 @@ class OrbitController:
         self.control_tof_mm = None
         self.entry_center_radius_mm = None
         self.control_center_radius_mm = None
+        self.last_valid_tof_mm = None
         self.push_ready_elapsed_s = 0.0
         self._reset_pids()
 
@@ -373,6 +374,7 @@ class OrbitController:
         self.last_heading_error = None
         self.loss_elapsed_s = 0.0
         self.last_command = (0.0, 0.0, 0.0)
+        self.last_valid_tof_mm = None
         self.push_ready_elapsed_s = 0.0
         self._reset_pids()
         self.active = True
@@ -407,6 +409,8 @@ class OrbitController:
             orbit_target_y=orbit_target_y,
             class_id=class_id,
         )
+        # 入轨测距是绕行第一帧之前最近的可信读数，可作为突变滤波基准。
+        self.last_valid_tof_mm = entry_mm
 
     def _target_data(self, target):
         found = target is not None and bool(
@@ -454,6 +458,26 @@ class OrbitController:
             <= distance
             <= self.config.TOF_VALID_MAX_MM
         )
+
+    def _filtered_tof(self, distance_mm):
+        """Reject a one-frame ToF jump and retain the previous valid value."""
+        if not self._valid_tof(distance_mm):
+            # 无效帧不能与后续新读数跨帧比较，避免沿用过期距离。
+            self.last_valid_tof_mm = None
+            return False, 0.0, False
+
+        raw_distance = float(distance_mm)
+        jump_limit_mm = float(
+            _cfg(self.config, "TOF_FRAME_JUMP_REJECT_MM", 90.0)
+        )
+        if (
+            self.last_valid_tof_mm is not None
+            and abs(raw_distance - self.last_valid_tof_mm) > jump_limit_mm
+        ):
+            return True, self.last_valid_tof_mm, True
+
+        self.last_valid_tof_mm = raw_distance
+        return True, raw_distance, False
 
     def _heading_derivative(self, error, dt):
         derivative = 0.0
@@ -536,9 +560,8 @@ class OrbitController:
 
         self.loss_elapsed_s = 0.0
 
-        tof_found = self._valid_tof(tof_distance_mm)
-        distance = (
-            float(tof_distance_mm) if tof_found else 0.0
+        tof_found, distance, tof_jump_rejected = self._filtered_tof(
+            tof_distance_mm
         )
         target_x, target_y, class_id = target_data
         self.class_id = class_id
@@ -764,5 +787,8 @@ class OrbitController:
                 "rod_x_error_px": target_x - self.rod_target_x_px,
                 "rod_target_y_px": self.rod_target_y_px,
                 "rod_y_error_px": self.rod_target_y_px - target_y,
+                "tof_distance_raw_mm": tof_distance_mm,
+                "tof_distance_used_mm": distance if tof_found else None,
+                "tof_jump_rejected": tof_jump_rejected,
             },
         )
