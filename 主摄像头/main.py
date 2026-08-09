@@ -197,6 +197,11 @@ while True:
                 disp_img.draw_string(165, 20, "ID: %d (%s)" % (t_id, target_name), color=(0, 255, 0), scale=1)
                 disp_img.draw_string(165, 35, "X : %d" % int(t_x), color=(0, 255, 255), scale=1)
                 disp_img.draw_string(165, 50, "Y : %d" % int(t_y), color=(0, 255, 255), scale=1)
+                if tracker.target_score is None:
+                    score_text = "CF:--"
+                else:
+                    score_text = "CF:%.2f" % tracker.target_score
+                disp_img.draw_string(240, 35, score_text, color=(255, 255, 0), scale=1)
             else:
                 disp_img.draw_string(165, 20, "ID: None", color=(128, 128, 128), scale=1)
                 disp_img.draw_string(165, 35, "X : --", color=(128, 128, 128), scale=1)

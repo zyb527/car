@@ -38,9 +38,13 @@ MANUALLY_DISABLED_LABELS = set()  # 示例：{"ball", "bluebag"}
 # 锁定与追踪参数
 ACQUIRE_SCORE = 0.60
 MAINTAIN_SCORE = 0.30
+# 蓝沙包在当前模型下置信度偏低，只对该类别放宽获取和保持门槛。
+# 其他任务物体继续使用上面的全局门槛。
+ACQUIRE_SCORE_BY_CLASS = {"bluebag": 0.55}
+MAINTAIN_SCORE_BY_CLASS = {"bluebag": 0.25}
 PREEMPT_SCORE = 0.60
 PREEMPT_FRAMES = 2
-MAX_HOLD_FRAMES = 5
+MAX_HOLD_FRAMES = 6
 POSITION_ALPHA = 0.65
 VELOCITY_ALPHA = 0.50
 HOLD_VELOCITY_DECAY = 0.85
@@ -85,6 +89,9 @@ class Tracker:
         
         self.status = "SEARCH"
         self.shown_candidate = None
+        # 当前锁定类别在本帧的原始模型分数，仅供 LCD 诊断显示。
+        # None 表示本帧没有输出该类别候选。
+        self.target_score = None
 
     def get_candidates(self, img, enable_car_brick):
         if not self.net:
@@ -148,7 +155,8 @@ class Tracker:
         order = [target_filter_name] if target_filter_name else PRIORITY_ORDER
         for name in order:
             candidate = best_by_class.get(name)
-            if candidate is not None and candidate['score'] >= ACQUIRE_SCORE:
+            acquire_score = ACQUIRE_SCORE_BY_CLASS.get(name, ACQUIRE_SCORE)
+            if candidate is not None and candidate['score'] >= acquire_score:
                 return candidate
         return None
 
@@ -211,6 +219,7 @@ class Tracker:
         candidates, brick_blob = self.get_candidates(img, enable_car_brick)
         
         self.shown_candidate = None
+        self.target_score = None
         self.status = 'SEARCH'
         
         if target_filter_name and self.lock_name != target_filter_name:
@@ -251,8 +260,13 @@ class Tracker:
                 self.pending_switch_frames = 0
             else:
                 current_candidate = candidates.get(self.lock_name)
+                if current_candidate is not None:
+                    self.target_score = current_candidate['score']
+                maintain_score = MAINTAIN_SCORE_BY_CLASS.get(
+                    self.lock_name, MAINTAIN_SCORE
+                )
                 if (current_candidate is not None and 
-                    current_candidate['score'] >= MAINTAIN_SCORE and 
+                    current_candidate['score'] >= maintain_score and 
                     self.candidate_is_near_prediction(current_candidate)):
                     self.update_from_detection(current_candidate)
                     self.shown_candidate = current_candidate
@@ -275,6 +289,11 @@ class Tracker:
                             self.status = 'REACQUIRE'
                         else:
                             self.status = 'LOST'
+
+        # ACQUIRE/SWITCH/REACQUIRE 的候选已经通过门槛，记录实际分数。
+        # HOLD 时则保留上面记录的当前类别原始分数（可能低于保持门槛）。
+        if self.shown_candidate is not None:
+            self.target_score = self.shown_candidate['score']
                             
         target_found = (self.lock_name is not None)
         target_cx = self.smooth_x
