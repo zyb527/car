@@ -26,9 +26,9 @@ COLORS = {
     "brick": (128, 0, 128)     
 }
 
-# 优先级：bag(3) > ball(2) > bear(1)
-PRIORITY = {"redbag": 3, "bluebag": 3, "ball": 2, "brownbear": 1, "whitebear": 1}
-PRIORITY_ORDER = ["redbag", "bluebag", "ball", "brownbear", "whitebear"]
+# 优先级：ball(3) > bear(2) > bag(1)
+PRIORITY = {"redbag": 1, "bluebag": 1, "ball": 3, "brownbear": 2, "whitebear": 2}
+PRIORITY_ORDER = ["ball", "brownbear", "whitebear", "redbag", "bluebag"]
 
 # 手动屏蔽列表：只需修改本行后重新运行主摄像头程序。
 # 留空表示不屏蔽；示例：{"ball"}；多个：{"ball", "bluebag", "brick"}。
