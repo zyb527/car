@@ -1,10 +1,15 @@
 """Production main flow: coordinate navigation, vision approach/orbit,\npush/yellow-line handling, repeated search, and garage return.\n\nAll tunable values are in main_config.py.\n"""
 
+import gc
 import math
 import time
 
 from control import MotionStep, clamp
+gc.collect()
+
 from approach import ApproachController
+gc.collect()
+
 import main_config as cfg
 from main_config import (
     ApproachConfig,
@@ -14,8 +19,14 @@ from main_config import (
     OrbitConfig,
     PushConfig,
 )
+gc.collect()
+
 from garage import GarageController
+gc.collect()
+
 from motor import MotorSystem
+gc.collect()
+
 from navigation import (
     ApproachLossSearchController,
     CounterclockwiseTurnController,
@@ -23,12 +34,25 @@ from navigation import (
     HeadingTurnController,
     PostPushPointSearchController,
 )
+gc.collect()
+
 from odometry import OdometrySystem
+gc.collect()
+
 from orbit import OrbitController
+gc.collect()
+
 from push import PushController
+gc.collect()
+
 from tof import ToFSensor
+gc.collect()
+
 from vision import VisionReceiver
+gc.collect()
+
 from wireless_feedforward import FeedforwardSender
+gc.collect()
 
 
 class MainTaskState:
@@ -71,54 +95,6 @@ def _ticks_diff(new_value, old_value):
     if hasattr(time, "ticks_diff"):
         return time.ticks_diff(new_value, old_value)
     return new_value - old_value
-
-
-class PushCorrectionLED:
-    """Non-blocking, active-low C4 indicator for Push corrections."""
-
-    def __init__(self, pin_name="C4", duration_ms=2000, pin=None):
-        self.pin = pin
-        self.duration_ms = max(0, int(duration_ms))
-        self.trigger_ms = 0
-        self.active = False
-        if self.pin is None:
-            try:
-                from machine import Pin
-
-                self.pin = Pin(pin_name, Pin.OUT, value=True)
-            except Exception:
-                self.pin = None
-        self.off()
-
-    def _write(self, enabled):
-        if self.pin is not None:
-            # C4 LED is active-low: False=on, True=off.
-            self.pin.value(not bool(enabled))
-
-    def on(self):
-        self.active = True
-        self._write(True)
-
-    def trigger(self, now_ms=None):
-        if now_ms is None:
-            now_ms = _ticks_ms()
-        self.trigger_ms = now_ms
-        self.on()
-
-    def update(self, now_ms=None):
-        if not self.active:
-            return
-        if now_ms is None:
-            now_ms = _ticks_ms()
-        if _ticks_diff(now_ms, self.trigger_ms) >= self.duration_ms:
-            self.off()
-
-    def off(self):
-        self.active = False
-        self._write(False)
-
-
-C4StatusLED = PushCorrectionLED
 
 
 def _apply_push_coordinate_correction(odometry, pose, correction):
@@ -803,7 +779,6 @@ def main():
     motor = None
     sender = None
     pose_debug_uart = None
-    correction_led = None
     try:
         odometry = OdometrySystem()
         motor = MotorSystem(odometry=odometry)
@@ -819,14 +794,11 @@ def main():
             valid_max_mm=MissionConfig.TOF_VALID_MAX_MM,
         )
         controller = MainTaskController(vision)
-        correction_led = PushCorrectionLED(
-            MissionConfig.PUSH_CORRECTION_LED_PIN,
-            MissionConfig.PUSH_CORRECTION_LED_DURATION_MS,
-        )
         if MissionConfig.FEEDFORWARD_ENABLED:
             sender = FeedforwardSender(
                 period_ms=MissionConfig.FEEDFORWARD_TX_PERIOD_MS
             )
+        gc.collect()
 
         motor.start()
         motor.hard_stop()
@@ -895,7 +867,6 @@ def main():
                     result.debug["yellow_coordinate_correction_applied"] = (
                         corrected_pose
                     )
-                    correction_led.trigger(now_ms)
 
                 motor.apply_motion_step(result)
                 suppress_feedforward_w = bool(
@@ -951,8 +922,6 @@ def main():
             ):
                 _write_pose_debug(pose_debug_uart, odometry.get_pose())
                 last_pose_debug_ms = now_ms
-            if correction_led is not None:
-                correction_led.update(now_ms)
             _sleep_ms(1)
     except KeyboardInterrupt:
         print("test stopped")
@@ -964,8 +933,6 @@ def main():
         except Exception:
             pass
     finally:
-        if correction_led is not None:
-            correction_led.off()
         if motor is not None:
             motor.hard_stop()
         if sender is not None:

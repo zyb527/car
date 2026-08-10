@@ -8,8 +8,8 @@ import math
 
 CONTROL_PERIOD_MS = 20  # 控制算法循环周期（毫秒），20ms 对应 50Hz 控制频率
 
-INITIAL_X_CM = 0.0  # 小车初始 X 坐标（厘米）
-INITIAL_Y_CM = 0.0  # 小车初始 Y 坐标（厘米）
+INITIAL_X_CM = 25.0  # 小车初始 X 坐标（厘米）
+INITIAL_Y_CM = -5.0  # 小车初始 Y 坐标（厘米）
 INITIAL_HEADING_RAD = math.pi / 2.0  # 小车初始航向角（弧度，朝向正北/正上）
 INITIAL_HEADING_DEG = 90.0
 
@@ -19,13 +19,13 @@ VISUAL_ENABLE_MIN_X_CM = 50.0
 VISUAL_ENABLE_MIN_Y_CM = 50.0
 
 # 坐标找物主流程参数。
-INITIAL_WAYPOINT = (100.0, 70.0)
+INITIAL_WAYPOINT = (160.0, 70.0, 90.0)
 POST_PUSH_WAYPOINT_BY_CLASS = {
-    1: (100.0, 120.0),
-    2: (100.0, 120.0),
-    3: (160.0, 180.0),
-    4: (220.0, 120.0),
-    5: (220.0, 120.0),
+    1: (100.0, 120.0, 0.0),
+    2: (100.0, 120.0, 0.0),
+    3: (190.0, 170.0, -90.0),
+    4: (220.0, 120.0, 180.0),
+    5: (220.0, 120.0, 180.0),
 }
 # 到达 Push 后返场点的固定朝向：1/2=沙包，3=网球，4/5=小熊。
 POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS = {
@@ -65,8 +65,48 @@ TOF_VALID_MAX_MM = 1500.0
 TOF_ORBIT_ENTRY_MM = 170.0
 TOF_EMERGENCY_MM = 120.0
 TOF_EMERGENCY_RELEASE_MM = 160.0
-TOF_CENTER_OFFSET_MM = 20.0
+TOF_CENTER_OFFSET_MM = 30.0
 MISSION_MAX_XY_SPEED_CM_S = 100.0
+
+
+class MissionConfig:
+    """顶层状态机、通信周期和安全超时。"""
+
+    CONTROL_PERIOD_MS = CONTROL_PERIOD_MS
+    # 无线串口位姿调试。开启后通过 UART0 每 200 ms 输出一次世界坐标和航向。
+    POSE_DEBUG_UART_ENABLED = False
+    POSE_DEBUG_UART_ID = 0
+    POSE_DEBUG_UART_BAUD = 115200
+    POSE_DEBUG_UART_PERIOD_MS = 200
+    FEEDFORWARD_ENABLED = True
+    FEEDFORWARD_TX_PERIOD_MS = 10
+    # 无线前馈 = 实测速度 * 此权重 + S 曲线目标指令 * (1 - 此权重)。
+    # vx/vy 使用编码器里程计，w 使用 IMU；调试范围必须为 0.0～1.0。
+    FEEDFORWARD_MEASURED_WEIGHT = 0
+    START_DELAY_MS = 2000
+    INITIAL_HEADING_RESET_TIMEOUT_MS = 100
+    MAIN_CAMERA_UART_ID = 7
+    MAIN_CAMERA_BAUD = 115200
+    MAIN_CAMERA_TIMEOUT_MS = 500
+    TOF_TIMEOUT_MS = 300
+    SEARCH_W_RAD_S = 1.5
+    SEARCH_LOCK_TIMEOUT_S = 8.0
+    APPROACH_LOSS_SEARCH_TURN_RAD = 2.0 * math.pi
+    APPROACH_LOSS_SEARCH_WAYPOINTS = APPROACH_LOSS_SEARCH_WAYPOINTS
+    TARGET_CLASS_IDS = (1, 2, 3, 4, 5)
+    TOTAL_OBJECTS_TO_PUSH = 5
+    INITIAL_WAYPOINT = INITIAL_WAYPOINT
+    VISUAL_ENABLE_MIN_X_CM = VISUAL_ENABLE_MIN_X_CM
+    VISUAL_ENABLE_MIN_Y_CM = VISUAL_ENABLE_MIN_Y_CM
+    POST_PUSH_WAYPOINT_BY_CLASS = POST_PUSH_WAYPOINT_BY_CLASS
+    POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS = POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS
+    POST_PUSH_POINT_WAIT_S = POST_PUSH_POINT_WAIT_S
+    POST_PUSH_FORWARD_SPEED_CM_S = POST_PUSH_FORWARD_SPEED_CM_S
+    POST_PUSH_FORWARD_MAX_DISTANCE_CM = POST_PUSH_FORWARD_MAX_DISTANCE_CM
+    POST_PUSH_VISUAL_GATE_BY_CLASS = POST_PUSH_VISUAL_GATE_BY_CLASS
+    CLASS_HEADING_DEG = CLASS_HEADING_DEG
+    TOF_VALID_MIN_MM = TOF_VALID_MIN_MM
+    TOF_VALID_MAX_MM = TOF_VALID_MAX_MM
 
 
 class NavigationConfig:
@@ -110,10 +150,10 @@ class ApproachConfig:
     APPROACH_Y_SLOW_START_PX = 50.0  # 图像 Y 轴方向接近目标时开始前向减速的距离（像素）
 
     APPROACH_SPEED_CM_S = 100.0
-    MIN_APPROACH_SPEED_CM_S = 30.0
+    MIN_APPROACH_SPEED_CM_S = 25.0
     TENNIS_MIN_APPROACH_SPEED_CM_S = 15.0
     # 网球单独保留视觉 Y 方向减速起点，方便不影响其他目标地调参。
-    TENNIS_APPROACH_Y_SLOW_START_PX = 50.0
+    TENNIS_APPROACH_Y_SLOW_START_PX = 45.0
     TOF_SLOW_START_MM = 500.0  # ToF 激光传感器开始触发减速前行进给的距离门限（毫米）
 
     STOP_DISTANCE_MM = TOF_ORBIT_ENTRY_MM
@@ -142,9 +182,27 @@ class OrbitConfig:
 
     TARGET_CENTER_X_PX = 160.0  # 摄像头画面物理中心 X 坐标（像素）
 
-    # 绕行/对位完成后，目标需要落在此像素 X 坐标才能处于斜推杆正前方
-    ORBIT_ROD_TARGET_X_PX = 65.0
-    ORBIT_ROD_TARGET_Y_PX = 140.0
+    # 绕行结束后的第一段横移，仅按 X 像素将目标移到对应位置。
+    ORBIT_ALIGN_TARGET_X_PX = 100.0
+    ORBIT_ALIGN_TARGET_X_BY_CLASS = {
+        1: 100.0,  # 红沙包
+        2: 100.0,  # 蓝沙包
+        3: 90.0,  # 网球
+        4: 100.0,  # 棕熊
+        5: 100.0,  # 白熊
+    }
+
+    # 第二段 CLOSE_IN：目标落在各类别对应的斜推杆正前方像素。
+    # 默认值用于没有类别信息的独立调试；正式任务由下表按类别选择。
+    ORBIT_ROD_TARGET_X_PX = 50.0
+    ORBIT_ROD_TARGET_Y_PX = 166.0
+    ORBIT_ROD_TARGET_BY_CLASS = {
+        1: (55.0, 145.0),  # 红沙包
+        2: (70.0, 145.0),  # 蓝沙包
+        3: (70.0, 140.0),  # 网球
+        4: (70.0, 142.0),  # 棕熊
+        5: (70.0, 142.0),  # 白熊
+    }
     CAMERA_TURN_DEAD_BAND_X_PX = 15.0
     ORBIT_Y_DEAD_BAND_PX = 15.0
 
@@ -167,13 +225,14 @@ class OrbitConfig:
     ORBIT_STOP_X_ERROR_PX = 15.0
     ORBIT_FINAL_ALIGN_X_ERROR_PX = 15.0
     ORBIT_FINAL_ALIGN_Y_ERROR_PX = 15.0
-    ORBIT_ALIGN_TIMEOUT_S = 1.0  # 推杆横向对位阶段超时限定时间（秒）
-    ORBIT_CLOSE_IN_TIMEOUT_S = 1.0  # 推杆逼近贴靠阶段超时限定时间（秒）
+    # 绕行后的两个视觉对位阶段必须在限定时间内完成，避免 PID 输出过小而停滞。
+    ORBIT_ALIGN_TIMEOUT_S = 0.8  # 第一段横移对位超时（800 ms）
+    ORBIT_CLOSE_IN_TIMEOUT_S = 0.5  # 第二段贴近对位超时（500 ms）
     ORBIT_SLOW_DOWN_START_RAD = math.radians(30.0)  # 接近绕行终点开始降角速度的角度偏差门限（弧度，30度）
     ORBIT_SLOW_DOWN_MIN_SCALE = 0.32  # 接近绕行终点时角速度减速的最小比例下限
 
-    ORBIT_ALIGN_KP = 0.55  # 对位与贴靠阶段纯靠 IMU 维持目标姿态角的 P 增益
-    ORBIT_ALIGN_KD = 0.032  # 对位与贴靠阶段纯靠 IMU 维持目标姿态角的 D 增益
+    ORBIT_ALIGN_KP = 0.48  # 对位与贴靠阶段纯靠 IMU 维持目标姿态角的 P 增益
+    ORBIT_ALIGN_KD = 0.03  # 对位与贴靠阶段纯靠 IMU 维持目标姿态角的 D 增益
     ORBIT_ALIGN_MAX_W_RAD_S = 3.0  # 对位与贴靠阶段允许的最大修正角速度（弧度/秒）
 
     ORBIT_CLOSE_IN_TENNIS_STOP_MM = TOF_EMERGENCY_MM
@@ -185,7 +244,7 @@ class OrbitConfig:
     TOF_EMERGENCY_MM = TOF_EMERGENCY_MM
     TOF_EMERGENCY_RELEASE_MM = TOF_EMERGENCY_RELEASE_MM
     TOF_EMERGENCY_RETREAT_SPEED_CM_S = 20.0
-    MAX_XY_SPEED_CM_S = MISSION_MAX_XY_SPEED_CM_S
+    MAX_XY_SPEED_CM_S = 120.0
     PUSH_READY_STABLE_S = 0.20
 
     # 绕行与对位 PID 参数
@@ -197,7 +256,7 @@ class OrbitConfig:
 
     PID_ORBIT_TOF_KP = 0.25  # ToF 测距半径修正 PID P 增益
     PID_ORBIT_TOF_KI = 0.0  # ToF 测距半径修正 PID I 增益
-    PID_ORBIT_TOF_KD = 0.05  # ToF 测距半径修正 PID D 增益
+    PID_ORBIT_TOF_KD = 0.025  # ToF 测距半径修正 PID D 增益
     PID_ORBIT_TOF_I_LIMIT = 300.0  # ToF 测距半径修正 PID 积分限幅
 
     PID_ORBIT_Y_KP = 0.6  # 图像 Y 轴像素偏置修正 PID P 增益
@@ -205,14 +264,14 @@ class OrbitConfig:
     PID_ORBIT_Y_KD = 0.05  # 图像 Y 轴像素偏置修正 PID D 增益
     PID_ORBIT_Y_I_LIMIT = 200.0  # 图像 Y 轴像素偏置修正 PID 积分限幅
 
-    PID_X_KP = 0.335  # 图像 X 轴横向平移修正 PID P 增益
-    PID_X_KI = 0.015  # 图像 X 轴横向平移修正 PID I 增益
-    PID_X_KD = 0.1  # 图像 X 轴横向平移修正 PID D 增益
+    PID_X_KP = 0.32  # 图像 X 轴横向平移修正 PID P 增益
+    PID_X_KI = 0.0  # 图像 X 轴横向平移修正 PID I 增益
+    PID_X_KD = 0.05  # 图像 X 轴横向平移修正 PID D 增益
     PID_X_I_LIMIT = 100.0  # 图像 X 轴横向平移修正 PID 积分限幅
 
-    ORBIT_ALIGN_MIN_W_RAD_S = 0.45
-    ORBIT_ALIGN_MIN_W_ERROR_RAD = math.radians(2.0)
-    CONTINUOUS_HOLD = True
+    ORBIT_ALIGN_MIN_W_RAD_S = 0.40
+    ORBIT_ALIGN_MIN_W_ERROR_RAD = math.radians(4.0)
+    CONTINUOUS_HOLD = False  # 启用 ALIGN / CLOSE_IN 超时保护，超时后退出当前目标。
     TARGET_LOSS_DECAY_S = 0.4
 
 
@@ -336,55 +395,6 @@ class GarageConfig:
     LATERAL_MAX_Y_CM = -50.0
     LATERAL_TIMEOUT_S = 5.0
     STOP_WAIT_S = 0.5
-
-
-class MissionConfig:
-    """顶层状态机、通信周期和安全超时。"""
-
-    CONTROL_PERIOD_MS = CONTROL_PERIOD_MS
-    # 无线串口位姿调试。开启后通过 UART0 每 200 ms 输出一次世界坐标和航向。
-    POSE_DEBUG_UART_ENABLED = False
-    POSE_DEBUG_UART_ID = 0
-    POSE_DEBUG_UART_BAUD = 115200
-    POSE_DEBUG_UART_PERIOD_MS = 200
-    # C4 为低电平点亮。每次 Push 黄线坐标校正后非阻塞点亮 2 秒；
-    # 其余时间保持关闭，不占用控制循环的 sleep/等待时间。
-    PUSH_CORRECTION_LED_PIN = "C4"
-    PUSH_CORRECTION_LED_DURATION_MS = 2000
-    FEEDFORWARD_ENABLED = True
-    FEEDFORWARD_TX_PERIOD_MS = 10
-    # 无线前馈 = 实测速度 * 此权重 + S 曲线目标指令 * (1 - 此权重)。
-    # vx/vy 使用编码器里程计，w 使用 IMU；调试范围必须为 0.0～1.0。
-    FEEDFORWARD_MEASURED_WEIGHT = 0
-    START_DELAY_MS = 2000
-    INITIAL_HEADING_RESET_TIMEOUT_MS = 100
-
-    MAIN_CAMERA_UART_ID = 7
-    MAIN_CAMERA_BAUD = 115200
-    MAIN_CAMERA_TIMEOUT_MS = 500
-    TOF_TIMEOUT_MS = 300
-
-    SEARCH_W_RAD_S = 1.5
-    SEARCH_LOCK_TIMEOUT_S = 8.0
-    APPROACH_LOSS_SEARCH_TURN_RAD = 2.0 * math.pi
-    APPROACH_LOSS_SEARCH_WAYPOINTS = APPROACH_LOSS_SEARCH_WAYPOINTS
-    TARGET_CLASS_IDS = (1, 2, 3, 4, 5)
-    TOTAL_OBJECTS_TO_PUSH = 3
-    INITIAL_WAYPOINT = INITIAL_WAYPOINT
-    VISUAL_ENABLE_MIN_X_CM = VISUAL_ENABLE_MIN_X_CM
-    VISUAL_ENABLE_MIN_Y_CM = VISUAL_ENABLE_MIN_Y_CM
-    POST_PUSH_WAYPOINT_BY_CLASS = POST_PUSH_WAYPOINT_BY_CLASS
-    POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS = (
-        POST_PUSH_FORWARD_HEADING_DEG_BY_CLASS
-    )
-    POST_PUSH_POINT_WAIT_S = POST_PUSH_POINT_WAIT_S
-    POST_PUSH_FORWARD_SPEED_CM_S = POST_PUSH_FORWARD_SPEED_CM_S
-    POST_PUSH_FORWARD_MAX_DISTANCE_CM = POST_PUSH_FORWARD_MAX_DISTANCE_CM
-    POST_PUSH_VISUAL_GATE_BY_CLASS = POST_PUSH_VISUAL_GATE_BY_CLASS
-    CLASS_HEADING_DEG = CLASS_HEADING_DEG
-
-    TOF_VALID_MIN_MM = TOF_VALID_MIN_MM
-    TOF_VALID_MAX_MM = TOF_VALID_MAX_MM
 
 
 PATROL_WAYPOINTS = ()  # 巡航路径点列表（默认为空元组）

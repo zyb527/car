@@ -29,24 +29,35 @@ class OrbitToFJumpFilterTests(unittest.TestCase):
 
     def test_jump_over_90_mm_reuses_previous_valid_tof_frame(self):
         controller = self._controller()
-        controller.step(target(), 200.0, 0.0)
+        controller._filtered_tof(200.0)
 
-        result = controller.step(target(), 291.0, 0.0)
+        found, distance, rejected = controller._filtered_tof(291.0)
 
-        self.assertTrue(result.debug["tof_jump_rejected"])
-        self.assertEqual(result.debug["tof_distance_raw_mm"], 291.0)
-        self.assertEqual(result.debug["tof_distance_used_mm"], 200.0)
+        self.assertTrue(found)
+        self.assertTrue(rejected)
+        self.assertEqual(distance, 200.0)
         self.assertEqual(controller.last_valid_tof_mm, 200.0)
 
     def test_change_of_90_mm_or_less_is_accepted(self):
         controller = self._controller()
-        controller.step(target(), 200.0, 0.0)
+        controller._filtered_tof(200.0)
 
-        result = controller.step(target(), 290.0, 0.0)
+        found, distance, rejected = controller._filtered_tof(290.0)
 
-        self.assertFalse(result.debug["tof_jump_rejected"])
-        self.assertEqual(result.debug["tof_distance_used_mm"], 290.0)
+        self.assertTrue(found)
+        self.assertFalse(rejected)
+        self.assertEqual(distance, 290.0)
         self.assertEqual(controller.last_valid_tof_mm, 290.0)
+
+    def test_running_debug_only_keeps_control_required_fields(self):
+        controller = self._controller()
+
+        result = controller.step(target(), 200.0, 0.0)
+
+        self.assertEqual(
+            set(result.debug),
+            {"phase", "tof_jump_rejected", "immediate_command"},
+        )
 
 
 if __name__ == "__main__":

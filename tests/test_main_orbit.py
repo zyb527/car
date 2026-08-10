@@ -71,15 +71,23 @@ ApproachConfig.PID_APPROACH_W_I_LIMIT = 100.0     # 逼近阶段角速度 PID �
 
 # 视觉目标位置
 OrbitConfig.TARGET_CENTER_X_PX = 160.0          # 摄像头画面物理水平中心 X 坐标（像素，针对 320x240 分辨率画面）
-OrbitConfig.ORBIT_ROD_TARGET_X_PX = 65.0        # 斜推杆正前方的目标 X 像素对准点（对位完成时目标落在此点正对斜推杆）
-OrbitConfig.ORBIT_ROD_TARGET_Y_PX = 140.0       # 斜推杆正前方的目标 Y 像素对准点（对位与贴近阶段纵向深度控制基准）
+OrbitConfig.ORBIT_ROD_TARGET_X_PX = 50.0        # 无类别调试时的默认推杆对准点
+OrbitConfig.ORBIT_ROD_TARGET_Y_PX = 166.0
+OrbitConfig.ORBIT_ALIGN_TARGET_X_PX = 100.0
+OrbitConfig.ORBIT_ALIGN_TARGET_X_BY_CLASS = {
+    1: 100.0, 2: 100.0, 3: 90.0, 4: 100.0, 5: 100.0,
+}
+OrbitConfig.ORBIT_ROD_TARGET_BY_CLASS = {
+    1: (55.0, 145.0), 2: (70.0, 145.0), 3: (70.0, 140.0),
+    4: (70.0, 142.0), 5: (70.0, 142.0),
+}
 OrbitConfig.CAMERA_TURN_DEAD_BAND_X_PX = 15.0  # 视觉转角辅助 PID 控制死区（|x_error| <= 15px 时忽略辅助转角，防止画面抖动）
 OrbitConfig.ORBIT_Y_DEAD_BAND_PX = 15.0         # 纵向 Y 轴控制死区（|y_error| <= 15px 时停止前后速度调整）
 
 # 绕行方向、半径与速度
 OrbitConfig.ORBIT_DIRECTION = "left"             # 绕行方向（"left": 逆时针/向左绕行，"right": 顺时针/向右绕行）
 OrbitConfig.ORBIT_MIN_RADIUS_MM = 150.0         # 绕行保持的标准基准物理半径（毫米，小车环绕目标旋转时的 ToF 锁定距离 15cm）
-OrbitConfig.TOF_CENTER_OFFSET_MM = 20.0         # ToF 传感器物理偏移补偿（毫米，ToF 激光安装点相对小车旋转中心的物理偏置 2cm）
+OrbitConfig.TOF_CENTER_OFFSET_MM = 30.0         # ToF 传感器物理偏移补偿（毫米，ToF 激光安装点相对小车旋转中心的物理偏置 2cm）
 OrbitConfig.ORBIT_MAX_VX_CM_S = 100.0           # 绕行最大切向/前向速度限制（厘米/秒，绕行切向移动的最大前进速度）
 OrbitConfig.ORBIT_MAX_VY_CM_S = 100.0           # 绕行最大径向/侧向速度限制（厘米/秒，绕行修正半径的最大径向平移速度）
 OrbitConfig.ORBIT_MAX_W_RAD_S = 4.0             # 绕行阶段最大允许旋转角速度（弧度/秒，防止旋转过快导致摄像机模糊）
@@ -92,7 +100,7 @@ OrbitConfig.ORBIT_BAND_VY_ENABLED = True        # 绕行半径安全带 (Radius 
 # 阶段切换、完成误差与超时
 OrbitConfig.ORBIT_STOP_ERROR_RAD = math.radians(2.0)         # 最终航向合格允许的最大角度误差门限（弧度，约 2.0 度）
 OrbitConfig.ORBIT_ENTER_ALIGN_ERROR_RAD = math.radians(5.0)  # 切入推杆对位 (PHASE_ALIGN) 的角度误差门限（弧度，约 5.0 度）
-OrbitConfig.ORBIT_STOP_X_ERROR_PX = 15.0                    # 横向对位合格允许的最大 X 轴像素偏差（像素，|target_x - 65| <= 15px）
+OrbitConfig.ORBIT_STOP_X_ERROR_PX = 15.0                    # 横向对位合格允许的最大 X 轴像素偏差（像素）
 OrbitConfig.ORBIT_FINAL_ALIGN_X_ERROR_PX = 15.0             # 贴近阶段 (CLOSE_IN) 的 X 轴允许像素误差门限（像素）
 OrbitConfig.ORBIT_FINAL_ALIGN_Y_ERROR_PX = 15.0             # 贴近阶段 (CLOSE_IN) 的 Y 轴允许像素误差门限（像素）
 OrbitConfig.ORBIT_ALIGN_TIMEOUT_S = 1.0                      # 推杆横向对位阶段超时限定时间（秒，受 CONTINUOUS_HOLD 控制）
@@ -101,17 +109,18 @@ OrbitConfig.ORBIT_SLOW_DOWN_START_RAD = math.radians(30.0)  # 接近绕行终点
 OrbitConfig.ORBIT_SLOW_DOWN_MIN_SCALE = 0.32                 # 绕行终点降速的最小角速度下限比例（基准角速度的 32%）
 
 # ALIGN / CLOSE_IN 阶段的航向保持
-OrbitConfig.ORBIT_ALIGN_KP = 0.52                            # 对位与贴靠阶段靠 IMU 维持目标航向角 proportional 增益 P
+OrbitConfig.ORBIT_ALIGN_KP = 0.48                            # 对位与贴靠阶段靠 IMU 维持目标航向角 proportional 增益 P
 OrbitConfig.ORBIT_ALIGN_KD = 0.03                          # 对位与贴靠阶段靠 IMU 维持目标航向角 derivative 增益 D（抑制抖动）
 OrbitConfig.ORBIT_ALIGN_MAX_W_RAD_S = 3.0                    # 姿态角保持阶段允许的最大修正角速度（弧度/秒）
 OrbitConfig.ORBIT_ALIGN_MIN_W_RAD_S = 0.40                  # 克服电机静摩擦力的最小补偿旋转角速度（弧度/秒）
-OrbitConfig.ORBIT_ALIGN_MIN_W_ERROR_RAD = math.radians(3.0)  # 触发静摩擦补偿的角度残差门限（弧度，偏差大于 2 度时生效）
+OrbitConfig.ORBIT_ALIGN_MIN_W_ERROR_RAD = math.radians(4.0)  # 触发静摩擦补偿的角度残差门限（弧度）
 
 # CLOSE_IN 的 ToF 安全距离
 OrbitConfig.ORBIT_CLOSE_IN_TENNIS_STOP_MM = 120.0       # 网球（Class 3）贴近停止门限（毫米，向前贴近至 120mm 时停止）
 OrbitConfig.ORBIT_CLOSE_IN_STOP_MM = 120.0              # 普通目标贴近停止门限（毫米，向前贴近至 120mm 时停止准备推入）
 OrbitConfig.TOF_VALID_MIN_MM = 20.0                     # ToF 激光传感器有效读数最小下限门限（毫米，低于 20mm 视为失真）
 OrbitConfig.TOF_VALID_MAX_MM = 1500.0                   # ToF 激光传感器有效读数最大上限门限（毫米，高于 1500mm 视为空旷）
+OrbitConfig.TOF_FRAME_JUMP_REJECT_MM = 90.0             # ToF 单帧相对上一有效帧突变超过此值时沿用上一帧（毫米）
 OrbitConfig.TOF_EMERGENCY_MM = 120.0                    # 紧急后退防撞触发距离（毫米，距离目标低于 120mm 且继续前冲时紧急退避）
 OrbitConfig.TOF_EMERGENCY_RELEASE_MM = 160.0            # 紧急后退防撞解除距离（毫米，退避至 160mm 以上时解除紧急状态）
 OrbitConfig.TOF_EMERGENCY_RETREAT_SPEED_CM_S = 20.0    # 触发防撞紧急状态时的后退撤退速度（厘米/秒）
@@ -142,9 +151,9 @@ OrbitConfig.PID_ORBIT_Y_KD = 0.05                  # 图像 Y 轴像素偏置修
 OrbitConfig.PID_ORBIT_Y_I_LIMIT = 200.0            # 图像 Y 轴像素偏置修正 PID 积分限幅
 
 # ALIGN / CLOSE_IN：视觉 X 偏差到横移速度的 PID
-OrbitConfig.PID_X_KP = 0.335                       # 图像 X 轴横向平移修正 PID 比例 P 增益（控制横移对准 X=65px）
-OrbitConfig.PID_X_KI = 0.015                       # 图像 X 轴横向平移修正 PID 积分 I 增益
-OrbitConfig.PID_X_KD = 0.1                         # 图像 X 轴横向平移修正 PID 微分 D 增益
+OrbitConfig.PID_X_KP = 0.33                       # 图像 X 轴横向平移修正 PID 比例 P 增益（控制横移对准 X=65px）
+OrbitConfig.PID_X_KI = 0.0                      # 图像 X 轴横向平移修正 PID 积分 I 增益
+OrbitConfig.PID_X_KD = 0.05                         # 图像 X 轴横向平移修正 PID 微分 D 增益
 OrbitConfig.PID_X_I_LIMIT = 100.0                  # 图像 X 轴横向平移修正 PID 积分限幅
 
 # =====================================================================
@@ -443,6 +452,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

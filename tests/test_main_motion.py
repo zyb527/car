@@ -449,7 +449,7 @@ class MigratedParameterTests(unittest.TestCase):
         self.assertEqual(OrbitConfig.PID_CAMERA_TURN_KP, 0.0145)
         self.assertEqual(OrbitConfig.PID_ORBIT_TOF_KP, 0.25)
         self.assertEqual(OrbitConfig.PID_ORBIT_Y_KP, 0.6)
-        self.assertEqual(OrbitConfig.PID_X_KP, 0.335)
+        self.assertEqual(OrbitConfig.PID_X_KP, 0.32)
 
     def test_patrol_linear_speeds_use_final_values(self):
         self.assertEqual(NavigationConfig.PATH_FAST_SPEED_CM_S, 325.0)

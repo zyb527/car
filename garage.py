@@ -148,7 +148,7 @@ class GarageController:
         elif self.state == GarageState.BACKWARD_FIND_YELLOW:
             found_yellow = False
             if hazard and getattr(hazard, "get", lambda x, y=None: None)("hazard_type") == 6:
-                if hazard.get("y", 0) > 100:
+                if hazard.get("y", 0) > self.config.YELLOW_Y_THRESHOLD_PX:
                     found_yellow = True
             
             if found_yellow:
@@ -169,7 +169,7 @@ class GarageController:
         elif self.state == GarageState.FORWARD_FIND_YELLOW:
             found_yellow = False
             if hazard and getattr(hazard, "get", lambda x, y=None: None)("hazard_type") == 6:
-                if hazard.get("y", 0) > 100:
+                if hazard.get("y", 0) > self.config.YELLOW_Y_THRESHOLD_PX:
                     found_yellow = True
             
             if found_yellow:

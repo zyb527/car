@@ -12,6 +12,7 @@ from control import MotionStep  # noqa: E402
 from main import MainTaskController, MainTaskState  # noqa: E402
 from main_config import MissionConfig, NavigationConfig  # noqa: E402
 from navigation import (  # noqa: E402
+    CoordinatePatrolController,
     PostPushPointSearchController,
     PostPushPointSearchState,
 )
@@ -124,6 +125,25 @@ class PostPushPointSearchTests(unittest.TestCase):
         self.assertAlmostEqual(
             mission.post_push_search.target_heading_rad, -math.pi / 2.0
         )
+
+    def test_post_push_return_waypoints_include_class_specific_heading(self):
+        expected = {
+            1: (100.0, 120.0, 0.0),
+            2: (100.0, 120.0, 0.0),
+            3: (190.0, 170.0, -90.0),
+            4: (220.0, 120.0, 180.0),
+            5: (220.0, 120.0, 180.0),
+        }
+
+        self.assertEqual(MissionConfig.POST_PUSH_WAYPOINT_BY_CLASS, expected)
+        for class_id, waypoint in expected.items():
+            with self.subTest(class_id=class_id):
+                patrol = CoordinatePatrolController((waypoint,), NavigationConfig)
+                patrol.reset(0.0, 0.0)
+                self.assertAlmostEqual(
+                    patrol.target_heading_rad((0.0, 0.0, 0.0)),
+                    math.radians(waypoint[2]),
+                )
 
     def test_any_target_interrupts_post_push_point_search(self):
         vision = FakeVision()

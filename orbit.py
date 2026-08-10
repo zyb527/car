@@ -21,16 +21,45 @@ PHASE_ALIGN = "ALIGN"
 PHASE_CLOSE_IN = "CLOSE_IN"
 
 
-def _target_value(target, key, default=None):
-    if isinstance(target, dict):
-        return target.get(key, default)
-    return getattr(target, key, default)
-
-
 def _cfg(config, name, default=None):
     if isinstance(config, dict):
         return config.get(name, default)
     return getattr(config, name, default)
+
+
+def get_rod_target_pixels(config, class_id=0):
+    """Return the calibrated final rod-alignment pixel for one object class."""
+    default = (
+        float(_cfg(config, "ORBIT_ROD_TARGET_X_PX", 65.0)),
+        float(_cfg(config, "ORBIT_ROD_TARGET_Y_PX", 140.0)),
+    )
+    targets = _cfg(config, "ORBIT_ROD_TARGET_BY_CLASS", {})
+    if not hasattr(targets, "get"):
+        return default
+    target = targets.get(int(class_id or 0))
+    if target is None:
+        return default
+    try:
+        target_x = float(target[0])
+        target_y = float(target[1])
+    except (TypeError, ValueError, IndexError):
+        return default
+    if not finite(target_x) or not finite(target_y):
+        return default
+    return target_x, target_y
+
+
+def get_orbit_align_target_x_px(config, class_id=0):
+    """Return the first lateral-alignment X target for one object class."""
+    default = float(_cfg(config, "ORBIT_ALIGN_TARGET_X_PX", 65.0))
+    targets = _cfg(config, "ORBIT_ALIGN_TARGET_X_BY_CLASS", {})
+    if not hasattr(targets, "get"):
+        return default
+    try:
+        target_x = float(targets.get(int(class_id or 0), default))
+    except (TypeError, ValueError):
+        return default
+    return target_x if finite(target_x) else default
 
 
 def get_orbit_direction(config):
@@ -293,19 +322,9 @@ class OrbitController:
         self.target_heading_rad = 0.0
         self.orbit_radius_mm = self.config.ORBIT_MIN_RADIUS_MM
         self.orbit_target_y = self.config.ORBIT_ROD_TARGET_Y_PX
-        self.rod_target_x_px = float(
-            _cfg(
-                self.config,
-                "ORBIT_ROD_TARGET_X_PX",
-                self.config.TARGET_CENTER_X_PX,
-            )
-        )
-        self.rod_target_y_px = float(
-            _cfg(
-                self.config,
-                "ORBIT_ROD_TARGET_Y_PX",
-                self.config.ORBIT_ROD_TARGET_Y_PX,
-            )
+        self.align_target_x_px = get_orbit_align_target_x_px(self.config)
+        self.rod_target_x_px, self.rod_target_y_px = (
+            get_rod_target_pixels(self.config)
         )
         self.phase_elapsed_s = 0.0
         self.last_heading_error = None
@@ -328,6 +347,7 @@ class OrbitController:
         orbit_radius_mm=None,
         orbit_target_y=None,
         class_id=0,
+        align_target_x_px=None,
         rod_target_x_px=None,
         rod_target_y_px=None,
     ):
@@ -351,21 +371,24 @@ class OrbitController:
             else orbit_target_y
         )
         self.class_id = int(class_id)
+        configured_align_x = get_orbit_align_target_x_px(
+            self.config, self.class_id
+        )
+        self.align_target_x_px = float(
+            configured_align_x
+            if align_target_x_px is None
+            else align_target_x_px
+        )
+        configured_rod_x, configured_rod_y = get_rod_target_pixels(
+            self.config, self.class_id
+        )
         self.rod_target_x_px = float(
-            _cfg(
-                self.config,
-                "ORBIT_ROD_TARGET_X_PX",
-                self.config.TARGET_CENTER_X_PX,
-            )
+            configured_rod_x
             if rod_target_x_px is None
             else rod_target_x_px
         )
         self.rod_target_y_px = float(
-            _cfg(
-                self.config,
-                "ORBIT_ROD_TARGET_Y_PX",
-                self.config.ORBIT_ROD_TARGET_Y_PX,
-            )
+            configured_rod_y
             if rod_target_y_px is None
             else rod_target_y_px
         )
@@ -413,37 +436,14 @@ class OrbitController:
         self.last_valid_tof_mm = entry_mm
 
     def _target_data(self, target):
-        found = target is not None and bool(
-            _target_value(
-                target,
-                "found",
-                _target_value(target, "target_found", False),
-            )
-        )
-        if not found:
+        if not isinstance(target, dict) or not bool(target.get("found", False)):
             return None
-        x = float(
-            _target_value(
-                target,
-                "x",
-                _target_value(target, "target_x", 0.0),
-            )
-        )
-        y = float(
-            _target_value(
-                target,
-                "y",
-                _target_value(target, "target_y", 0.0),
-            )
-        )
-        class_id = int(
-            _target_value(
-                target,
-                "class_id",
-                _target_value(target, "target_class_id", self.class_id),
-            )
-            or 0
-        )
+        try:
+            x = float(target["x"])
+            y = float(target["y"])
+            class_id = int(target["class_id"])
+        except (KeyError, TypeError, ValueError):
+            return False
         if not finite(x) or not finite(y):
             return False
         return x, y, class_id
@@ -574,7 +574,12 @@ class OrbitController:
                 self._enter_phase(PHASE_ALIGN)
                 return MotionStep.stop(
                     "orbit_enter_align",
-                    debug={"phase": self.phase},
+                    debug={
+                        "phase": self.phase,
+                        # 绕圈结束后立即清除残余切向速度，随后 ALIGN/CLOSE_IN
+                        # 的横移与贴近均绕过 S 曲线直接执行。
+                        "immediate_command": True,
+                    },
                 )
             command = calc_orbit_command(
                 target_x,
@@ -593,8 +598,8 @@ class OrbitController:
             )
         elif self.phase == PHASE_ALIGN:
             # 绕行已完成。此处不再把目标拉回画面中心，而是横移车体，
-            # 让物体落到斜推杆正前方的标定像素。
-            x_error = target_x - self.rod_target_x_px
+            # 先横移到类别对应的中间 X 像素，随后才进入 CLOSE_IN。
+            x_error = target_x - self.align_target_x_px
             heading_ok = (
                 abs(heading_error)
                 <= self.config.ORBIT_STOP_ERROR_RAD
@@ -613,8 +618,7 @@ class OrbitController:
                     "orbit_enter_close_in",
                     debug={
                         "phase": self.phase,
-                        "rod_target_x_px": self.rod_target_x_px,
-                        "rod_target_y_px": self.rod_target_y_px,
+                        "immediate_command": True,
                     },
                 )
             # 连续保持测试不应在把目标从画面中心移到最终对准点的过程中
@@ -737,10 +741,6 @@ class OrbitController:
                     done=True,
                     debug={
                         "phase": PHASE_CLOSE_IN,
-                        "rod_target_x_px": self.rod_target_x_px,
-                        "rod_target_y_px": self.rod_target_y_px,
-                        "tof_too_close": too_close,
-                        "ready_elapsed_s": self.push_ready_elapsed_s,
                     },
                 )
             if timed_out and not continuous_hold:
@@ -780,15 +780,10 @@ class OrbitController:
             command,
             debug={
                 "phase": self.phase,
-                "heading_error_rad": heading_error,
-                "direction": self.direction,
-                "orbit_radius_mm": self.orbit_radius_mm,
-                "rod_target_x_px": self.rod_target_x_px,
-                "rod_x_error_px": target_x - self.rod_target_x_px,
-                "rod_target_y_px": self.rod_target_y_px,
-                "rod_y_error_px": self.rod_target_y_px - target_y,
-                "tof_distance_raw_mm": tof_distance_mm,
-                "tof_distance_used_mm": distance if tof_found else None,
                 "tof_jump_rejected": tof_jump_rejected,
+                "immediate_command": self.phase in (
+                    PHASE_ALIGN,
+                    PHASE_CLOSE_IN,
+                ),
             },
         )

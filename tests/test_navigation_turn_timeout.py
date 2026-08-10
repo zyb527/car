@@ -10,7 +10,6 @@ if CAR_DIR not in sys.path:
 
 from main_config import NavigationConfig  # noqa: E402
 from navigation import (  # noqa: E402
-    ClockwiseTurnController,
     CounterclockwiseTurnController,
     HeadingTurnController,
 )
@@ -30,17 +29,6 @@ class NavigationTurnTimeoutTests(unittest.TestCase):
 
         self.assertTrue(result.failed)
         self.assertEqual(result.reason, "heading_turn_timeout")
-        self.assertEqual(result.command, (0.0, 0.0, 0.0))
-
-    def test_clockwise_turn_stops_after_maximum_time(self):
-        controller = ClockwiseTurnController(FastTimeoutNavigationConfig)
-        controller.start(0.0)
-
-        self.assertFalse(controller.step(0.0, 0.0, 0.02).failed)
-        result = controller.step(0.0, 0.0, 0.03)
-
-        self.assertTrue(result.failed)
-        self.assertEqual(result.reason, "clockwise_turn_timeout")
         self.assertEqual(result.command, (0.0, 0.0, 0.0))
 
     def test_counterclockwise_turn_stops_after_maximum_time(self):

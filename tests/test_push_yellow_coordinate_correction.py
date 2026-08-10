@@ -1,8 +1,6 @@
 import os
 import sys
-import types
 import unittest
-from unittest import mock
 
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -11,10 +9,8 @@ if PROJECT_DIR not in sys.path:
 
 from control import MotionStep  # noqa: E402
 from main import (  # noqa: E402
-    C4StatusLED,
     MainTaskController,
     MainTaskState,
-    PushCorrectionLED,
     _apply_push_coordinate_correction,
 )
 from main_config import PushConfig  # noqa: E402
@@ -45,20 +41,6 @@ class FakeOdometry:
 
     def reset_position(self, x_cm, y_cm):
         self.reset_position_calls.append((x_cm, y_cm))
-
-
-class FakePin:
-    OUT = 1
-    instances = []
-
-    def __init__(self, name="C4", mode=1, *args, **kwargs):
-        self.name = name
-        self.mode = mode
-        self.values = []
-        self.instances.append(self)
-
-    def value(self, value):
-        self.values.append(value)
 
 
 class FakeVision:
@@ -196,40 +178,6 @@ class PushYellowCoordinateCorrectionTests(unittest.TestCase):
         )
         self.assertEqual(corrected, (213.0, 200.0, 0.7))
         self.assertEqual(odometry.reset_position_calls, [(213.0, 200.0)])
-
-    def test_c4_starts_off_and_turns_on_after_a_successful_correction(self):
-        FakePin.instances = []
-        machine = types.SimpleNamespace(Pin=FakePin)
-        with mock.patch.dict(sys.modules, {"machine": machine}):
-            led = C4StatusLED()
-            self.assertEqual(FakePin.instances[0].name, "C4")
-            self.assertEqual(FakePin.instances[0].values, [1])
-            led.on()
-            self.assertEqual(FakePin.instances[0].values, [1, 0])
-
-    def test_c4_led_is_active_low_and_turns_off_after_two_seconds(self):
-        pin = FakePin()
-        led = PushCorrectionLED(duration_ms=2000, pin=pin)
-        self.assertEqual(pin.values[-1], True)
-
-        led.trigger(100)
-        self.assertEqual(pin.values[-1], False)
-        led.update(2099)
-        self.assertEqual(pin.values[-1], False)
-        led.update(2100)
-        self.assertEqual(pin.values[-1], True)
-
-    def test_later_correction_restarts_c4_two_second_window(self):
-        pin = FakePin()
-        led = PushCorrectionLED(duration_ms=2000, pin=pin)
-        led.trigger(100)
-        led.trigger(1000)
-        led.update(2100)
-        self.assertTrue(led.active)
-        self.assertEqual(pin.values[-1], False)
-        led.update(3000)
-        self.assertFalse(led.active)
-        self.assertEqual(pin.values[-1], True)
 
     def test_tennis_event_closes_camera_yellow_detection_in_main_controller(self):
         vision = FakeVision()

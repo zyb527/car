@@ -210,7 +210,8 @@ class MotorConfig:
         self.max_xy_speed_cm_s = 700.0
         self.max_w_rad_s = 3.4
         self.xy_accel_up_cm_s2 = 1200.0
-        self.xy_accel_down_cm_s2 = 300.0
+        # 黄线回库等正常零速度指令使用 S 曲线减速；提高此值可缩短滑行距离。
+        self.xy_accel_down_cm_s2 = 600.0
         self.xy_jerk_cm_s3 = 15000.0
         self.w_accel_up_rad_s2 = 22.0
         self.w_accel_down_rad_s2 = 18.0

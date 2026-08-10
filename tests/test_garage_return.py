@@ -82,6 +82,29 @@ class GarageReturnTests(unittest.TestCase):
         self.assertEqual(completed.reason, "turn_complete")
         self.assertNotEqual(garage.state, GarageState.TURN_180)
 
+    def test_yellow_requires_y_greater_than_60_to_stop_forward_search(self):
+        garage = GarageController(GarageConfig)
+        garage.start(FakeVision())
+        garage.state = GarageState.FORWARD_FIND_YELLOW
+
+        at_threshold = garage.step(
+            (160.0, 100.0, math.pi),
+            {"hazard_type": 6, "y": 60.0},
+            0.0,
+            0.02,
+        )
+        self.assertEqual(at_threshold.reason, "forward_finding_yellow")
+        self.assertEqual(garage.state, GarageState.FORWARD_FIND_YELLOW)
+
+        above_threshold = garage.step(
+            (160.0, 100.0, math.pi),
+            {"hazard_type": 6, "y": 60.1},
+            0.0,
+            0.02,
+        )
+        self.assertEqual(above_threshold.reason, "yellow_found_forward")
+        self.assertEqual(garage.state, GarageState.STOP_AT_YELLOW)
+
     def test_main_passes_the_last_pushed_class_to_garage(self):
         class CaptureGarage:
             def __init__(self):
