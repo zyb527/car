@@ -36,6 +36,7 @@ PRIORITY_ORDER = ["ball", "brownbear", "whitebear", "redbag", "bluebag"]
 MANUALLY_DISABLED_LABELS = set()  # 示例：{"ball", "bluebag"}
 
 # 锁定与追踪参数
+TARGET_PRIORITY_POINT = (80.0, 80.0)
 ACQUIRE_SCORE = 0.60
 MAINTAIN_SCORE = 0.30
 # 蓝沙包在当前模型下置信度偏低，只对该类别放宽获取和保持门槛。
@@ -169,7 +170,7 @@ class Tracker:
         offset_y = (MODEL_SIZE - img_small.height()) // 2
         infer_img.draw_image(img_small, 0, offset_y)
         
-        best_by_class = {}
+        candidates_by_class = {}
         brick_blob = None
         
         for obj in tf.detect(self.net, infer_img):
@@ -206,23 +207,48 @@ class Tracker:
                     if brick_blob is None or score > brick_blob['score']:
                         brick_blob = candidate
             else:
-                old = best_by_class.get(mapped_name)
-                if old is None or score > old['score']:
-                    best_by_class[mapped_name] = candidate
+                class_candidates = candidates_by_class.get(mapped_name)
+                if class_candidates is None:
+                    class_candidates = []
+                    candidates_by_class[mapped_name] = class_candidates
+                class_candidates.append(candidate)
 
         # 红沙包贴近推杆时，模型可能在同一位置额外给出 brick。此砖块不应
         # 进入 hazard 通道，也不应向小车发送坐标。
-        if is_brick_near_redbag(brick_blob, best_by_class.get('redbag')):
-            brick_blob = None
+        for redbag_blob in candidates_by_class.get('redbag', ()):
+            if is_brick_near_redbag(brick_blob, redbag_blob):
+                brick_blob = None
+                break
 
-        return best_by_class, brick_blob
+        return candidates_by_class, brick_blob
 
-    def choose_acquire_candidate(self, best_by_class, target_filter_name=None):
+    def choose_nearest_priority_candidate(self, candidates, min_score):
+        """从达到置信度门槛的同类候选中选择最接近优先点的一个。"""
+        target_x, target_y = TARGET_PRIORITY_POINT
+        nearest_candidate = None
+        nearest_distance_sq = None
+
+        for candidate in candidates:
+            if candidate['score'] < min_score:
+                continue
+
+            dx = candidate['cx'] - target_x
+            dy = candidate['cy'] - target_y
+            distance_sq = dx * dx + dy * dy
+            if nearest_distance_sq is None or distance_sq < nearest_distance_sq:
+                nearest_candidate = candidate
+                nearest_distance_sq = distance_sq
+
+        return nearest_candidate
+
+    def choose_acquire_candidate(self, candidates_by_class, target_filter_name=None):
         order = [target_filter_name] if target_filter_name else PRIORITY_ORDER
         for name in order:
-            candidate = best_by_class.get(name)
             acquire_score = ACQUIRE_SCORE_BY_CLASS.get(name, ACQUIRE_SCORE)
-            if candidate is not None and candidate['score'] >= acquire_score:
+            candidate = self.choose_nearest_priority_candidate(
+                candidates_by_class.get(name, ()), acquire_score
+            )
+            if candidate is not None:
                 return candidate
         return None
 
@@ -232,6 +258,24 @@ class Tracker:
         object_size = max(self.last_w, self.last_h)
         allowed_distance = max(ASSOC_MIN_DISTANCE, object_size * 1.2)
         return distance <= allowed_distance
+
+    def choose_tracking_candidate(self, candidates):
+        """按当前锁定位置关联同类候选，避免改按优先点后跳换目标。"""
+        nearest_candidate = None
+        nearest_distance_sq = None
+
+        for candidate in candidates:
+            if not self.candidate_is_near_prediction(candidate):
+                continue
+
+            dx = candidate['cx'] - self.smooth_x
+            dy = candidate['cy'] - self.smooth_y
+            distance_sq = dx * dx + dy * dy
+            if nearest_distance_sq is None or distance_sq < nearest_distance_sq:
+                nearest_candidate = candidate
+                nearest_distance_sq = distance_sq
+
+        return nearest_candidate
 
     def start_lock(self, candidate):
         self.lock_name = candidate['name']
@@ -301,10 +345,12 @@ class Tracker:
             higher_candidate = None
             if target_filter_name is None:
                 for name in PRIORITY_ORDER:
-                    candidate = candidates.get(name)
-                    if (candidate is not None and 
-                        PRIORITY[name] > PRIORITY[self.lock_name] and 
-                        candidate['score'] >= PREEMPT_SCORE):
+                    if PRIORITY[name] <= PRIORITY[self.lock_name]:
+                        continue
+                    candidate = self.choose_nearest_priority_candidate(
+                        candidates.get(name, ()), PREEMPT_SCORE
+                    )
+                    if candidate is not None:
                         higher_candidate = candidate
                         break
             
@@ -325,7 +371,9 @@ class Tracker:
                 self.pending_switch_name = None
                 self.pending_switch_frames = 0
             else:
-                current_candidate = candidates.get(self.lock_name)
+                current_candidate = self.choose_tracking_candidate(
+                    candidates.get(self.lock_name, ())
+                )
                 if current_candidate is not None:
                     self.target_score = current_candidate['score']
                 maintain_score = MAINTAIN_SCORE_BY_CLASS.get(
