@@ -132,7 +132,8 @@ class PushController:
         self.target_lost_time = 0.0
 
         self.original_heading = 0.0
-        self.avoid_direction = 1.0  # 1 for left, -1 for right
+        pref = _cfg(self.config, "PREFERRED_AVOID_DIRECTION", "left")
+        self.avoid_direction = 1.0 if pref == "left" else -1.0
         self.current_gear = 0       # 0: None, 1: Far, 2: Near, 3: Danger
         self.stable_gear_frames = 0
         self.candidate_gear = 0
@@ -422,16 +423,25 @@ class PushController:
                     yellow_correction,
                 )
             h_x = hazard_data["x"]
-            center_x = _cfg(self.config, "AVOID_CENTER_X_PX", 160.0)
-            deadband = _cfg(self.config, "AVOID_CENTER_DEADBAND_PX", 10.0)
+            line_y = hazard_data["y"]
+            line_y = clamp(
+                line_y,
+                _cfg(self.config, "AVOID_CENTER_LINE_Y_MIN_PX", 30.0),
+                _cfg(self.config, "AVOID_CENTER_LINE_Y_MAX_PX", 116.0),
+            )
+            # 双车总体中心线：X = 145 - 0.45 * Y。仅在进入避障时计算一次。
+            center_x = (
+                _cfg(self.config, "AVOID_CENTER_LINE_X_AT_Y0_PX", 145.0)
+                + _cfg(self.config, "AVOID_CENTER_LINE_SLOPE", -0.45)
+                * line_y
+            )
+            deadband = _cfg(self.config, "AVOID_CENTER_DEADBAND_PX", 5.0)
 
             if h_x < center_x - deadband:
                 self.avoid_direction = -1.0  # Object left, steer right
             elif h_x > center_x + deadband:
                 self.avoid_direction = 1.0   # Object right, steer left
-            else:
-                pref = _cfg(self.config, "PREFERRED_AVOID_DIRECTION", "left")
-                self.avoid_direction = 1.0 if pref == "left" else -1.0
+            # 中心线死区内保持上一轮方向；首轮使用 reset() 的默认偏好。
 
             self.original_heading = self.target_heading_rad
             self.current_gear = 0

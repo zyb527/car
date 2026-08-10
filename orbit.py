@@ -626,11 +626,14 @@ class OrbitController:
             if timed_out and not getattr(
                 self.config, "CONTINUOUS_HOLD", False
             ):
-                self.reset()
+                # 横移未完全对准时不再重启整段绕行；交由 CLOSE_IN 继续
+                # 同时修正 X/Y，避免小速度 PID 停滞在 ALIGN。
+                self._enter_phase(PHASE_CLOSE_IN)
                 return MotionStep.stop(
-                    "orbit_align_timeout",
-                    failed=True,
+                    "orbit_align_timeout_enter_close_in",
                     debug={
+                        "phase": self.phase,
+                        "forced_phase_transition": True,
                         "x_error_px": x_error,
                         "heading_error_rad": heading_error,
                     },
@@ -744,11 +747,13 @@ class OrbitController:
                     },
                 )
             if timed_out and not continuous_hold:
-                self.reset()
+                # 贴近阶段到时后直接开始推行，避免因极小 PID 输出长期卡住。
                 return MotionStep.stop(
-                    "orbit_close_in_timeout",
-                    failed=True,
+                    "orbit_close_in_timeout_enter_push",
+                    done=True,
                     debug={
+                        "phase": PHASE_CLOSE_IN,
+                        "forced_phase_transition": True,
                         "x_error_px": x_error,
                         "y_error_px": y_error,
                         "heading_error_rad": heading_error,

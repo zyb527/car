@@ -15,11 +15,11 @@ INITIAL_HEADING_DEG = 90.0
 
 # 启动盲区：只有首次同时越过这两个世界坐标后，主流程才接受视觉目标。
 # 使用严格大于，避免恰好停在边界时误触发目标锁定。
-VISUAL_ENABLE_MIN_X_CM = 50.0
+VISUAL_ENABLE_MIN_X_CM = 100.0
 VISUAL_ENABLE_MIN_Y_CM = 50.0
 
 # 坐标找物主流程参数。
-INITIAL_WAYPOINT = (160.0, 70.0, 90.0)
+INITIAL_WAYPOINT = (165.0, 60.0, 90.0)
 POST_PUSH_WAYPOINT_BY_CLASS = {
     1: (100.0, 120.0, 0.0),
     2: (100.0, 120.0, 0.0),
@@ -48,6 +48,8 @@ APPROACH_LOSS_SEARCH_WAYPOINTS = (
     (200.0, 60.0, 90.0),
     (220.0, 80.0, 180.0),
     (220.0, 160.0, 180.0),
+    (120.0, 180.0, -90.0),
+    (200.0, 180.0, -90.0),
 )
 # Push 后转完 180°、返回下一个场地点时的视觉保护门。三元组为
 # (世界坐标轴, 需要增加/减少的符号, 最小坐标变化量 cm)。
@@ -342,8 +344,13 @@ class PushConfig:
     # 双车同侧推行编队避障几何参数
     FORMATION_BASELINE_CM = 20.0  # 双车旋转中心之间的基线物理距离（厘米）
     OBJECT_FORWARD_OFFSET_CM = 10.0  # 物体相对于旋转中心的前向距离偏移（厘米）
-    AVOID_CENTER_X_PX = 65.0  # 双车推行系统的避障视觉中心 X 轴像素坐标
-    AVOID_CENTER_DEADBAND_PX = 10.0  # 避障视觉中心死区像素
+    # 双车总体中心线的像素拟合：X = 145 - 0.45 * Y。
+    # 标定点为 (134, 30)、(116, 56)、(94, 116)；仅在标定 Y 范围内计算。
+    AVOID_CENTER_LINE_X_AT_Y0_PX = 145.0
+    AVOID_CENTER_LINE_SLOPE = -0.45
+    AVOID_CENTER_LINE_Y_MIN_PX = 30.0
+    AVOID_CENTER_LINE_Y_MAX_PX = 116.0
+    AVOID_CENTER_DEADBAND_PX = 5.0  # 中心线两侧死区，避免像素抖动切换方向
     PREFERRED_AVOID_DIRECTION = "left"  # 偏好避障转向方向 ("left" 左避)
     AVOID_Y_NEAR_PX = 30.0  # 较近预警像素距离
     AVOID_Y_DANGER_PX = 60.0  # 危险临界像素距离
@@ -392,6 +399,8 @@ class GarageConfig:
     X_ADJUST_DISTANCE_CM = 50.0
     TENNIS_LEFT_SHIFT_DISTANCE_CM = 50.0
     YELLOW_Y_THRESHOLD_PX = 60.0
+    BACKWARD_YELLOW_Y_MAX_PX = 150.0  # 后退找黄线仅在 60 < y < 150 时停车
+    BACKWARD_MAX_DISTANCE_CM = 80.0
     LATERAL_MAX_Y_CM = -50.0
     LATERAL_TIMEOUT_S = 5.0
     STOP_WAIT_S = 0.5

@@ -148,7 +148,11 @@ class GarageController:
         elif self.state == GarageState.BACKWARD_FIND_YELLOW:
             found_yellow = False
             if hazard and getattr(hazard, "get", lambda x, y=None: None)("hazard_type") == 6:
-                if hazard.get("y", 0) > self.config.YELLOW_Y_THRESHOLD_PX:
+                yellow_y = hazard.get("y", 0)
+                if (
+                    yellow_y > self.config.YELLOW_Y_THRESHOLD_PX
+                    and yellow_y < self.config.BACKWARD_YELLOW_Y_MAX_PX
+                ):
                     found_yellow = True
             
             if found_yellow:
@@ -159,9 +163,9 @@ class GarageController:
                 return MotionStep((0.0, 0.0, w), reason="yellow_found_backward")
                 
             distance_moved = abs(current_x - self.start_x)
-            if distance_moved >= 50.0:
+            if distance_moved >= self.config.BACKWARD_MAX_DISTANCE_CM:
                 self.state = GarageState.FORWARD_FIND_YELLOW
-                return MotionStep((0.0, 0.0, w), reason="backward_50_complete")
+                return MotionStep((0.0, 0.0, w), reason="backward_80_complete")
                 
             vy = -self.config.FORWARD_SPEED_CM_S
             return MotionStep((0.0, vy, w), reason="backward_finding_yellow")

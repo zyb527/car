@@ -74,12 +74,19 @@ class PushCameraFilterTests(unittest.TestCase):
         controller.target_heading_rad = 0.0
         return controller, vision
 
-    def test_push_reference_and_avoidance_center_are_independent(self):
+    def test_push_reference_and_avoidance_center_line_are_independent(self):
         self.assertEqual(
             (PushConfig.TARGET_CENTER_X_PX, PushConfig.TARGET_Y_PX),
             (30.0, 75.0),
         )
-        self.assertEqual(PushConfig.AVOID_CENTER_X_PX, 65.0)
+        self.assertEqual(
+            (
+                PushConfig.AVOID_CENTER_LINE_X_AT_Y0_PX,
+                PushConfig.AVOID_CENTER_LINE_SLOPE,
+                PushConfig.AVOID_CENTER_DEADBAND_PX,
+            ),
+            (145.0, -0.45, 5.0),
+        )
 
     def test_orbit_to_push_keeps_target_filter_locked(self):
         controller, vision = self._controller()

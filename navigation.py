@@ -373,7 +373,7 @@ class CounterclockwiseTurnController:
 
 
 class ApproachLossSearchState:
-    """Motion-only phases for the Approach-loss six-waypoint search."""
+    """Motion-only phases for the Approach-loss eight-waypoint search."""
 
     TURN = "TURN"
     PRETURN = "PRETURN"

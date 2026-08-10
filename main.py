@@ -64,7 +64,7 @@ class MainTaskState:
     WAIT_TARGET = "WAIT_TARGET"
     # 锁定目标后，前移并横移纠偏，直到 y 超过 ORBIT_START_Y_PX。
     APPROACH = "APPROACH"
-    # Approach 丢失后的完整转圈与六点巡航动作由 navigation 控制器负责。
+    # Approach 丢失后的完整转圈与八点巡航动作由 navigation 控制器负责。
     APPROACH_SEARCH = "APPROACH_SEARCH"
     # 通过切向平移、视觉 X 转向与 ToF 半径闭环绕物，直到车头到达类别目标航向。
     ORBIT = "ORBIT"
@@ -188,18 +188,6 @@ class MainTaskController:
 
     def _transition(self, state):
         self.state = state
-
-    def _orbit_target_search_step(self):
-        """Continuously rotate in place until the locked Orbit target reappears."""
-        self.target_search_state = MainTaskState.ORBIT
-        return MotionStep(
-            (0.0, 0.0, float(MissionConfig.SEARCH_W_RAD_S)),
-            reason="orbit_spin_search",
-            debug={
-                "state": MainTaskState.ORBIT,
-                "target_search_active": True,
-            },
-        )
 
     def _clear_approach_loss_search(self):
         self.approach_search.reset()
@@ -697,8 +685,9 @@ class MainTaskController:
 
         if not self.orbit.active:
             if target_data is None:
-                if self.target_search_state == MainTaskState.ORBIT:
-                    return self._orbit_target_search_step()
+                return self._start_approach_loss_search(
+                    pose, yaw_rate_rad_s, dt
+                )
             else:
                 if tof_distance_mm is None:
                     return MotionStep.stop("orbit_recovery_waiting_for_tof")
@@ -719,7 +708,13 @@ class MainTaskController:
             dt=dt,
         )
         if result.failed and result.reason == "spin_search":
-            return self._orbit_target_search_step()
+            # Orbit has completely lost its locked target. Reuse the same
+            # full-turn + eight-waypoint search as Approach loss: this clears
+            # the camera filter, accepts any valid class, and restarts from
+            # Approach when a target is acquired.
+            return self._start_approach_loss_search(
+                pose, yaw_rate_rad_s, dt
+            )
         if result.failed:
             return result
         if result.done:

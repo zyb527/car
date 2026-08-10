@@ -62,6 +62,19 @@ class SearchThenRunApproach:
         return MotionStep(reason="approach_reacquired")
 
 
+class SearchThenLoseOrbit:
+    def __init__(self):
+        self.active = True
+
+    def reset(self):
+        self.active = False
+
+    def step(
+        self, target, tof_distance_mm, heading_rad, yaw_rate_rad_s=0.0, dt=0.02
+    ):
+        return MotionStep.stop("spin_search", failed=True)
+
+
 class ApproachReacquireAnyIdTests(unittest.TestCase):
     def test_search_waypoints_match_confirmed_order_and_headings(self):
         self.assertEqual(
@@ -73,6 +86,8 @@ class ApproachReacquireAnyIdTests(unittest.TestCase):
                 (200.0, 60.0, 90.0),
                 (220.0, 80.0, 180.0),
                 (220.0, 160.0, 180.0),
+                (120.0, 180.0, -90.0),
+                (200.0, 180.0, -90.0),
             ),
         )
 
@@ -110,6 +125,40 @@ class ApproachReacquireAnyIdTests(unittest.TestCase):
         self.assertEqual(vision.locked_ids, [4])
         self.assertIsNone(mission.target_search_state)
         self.assertIs(mission.approach.last_target, new_target)
+
+    def test_orbit_loss_searches_all_ids_then_restarts_approach(self):
+        vision = FakeVision()
+        mission = MainTaskController(vision)
+        mission.state = MainTaskState.ORBIT
+        mission.locked_class_id = 1
+        mission.target_heading_rad = math.radians(
+            MissionConfig.CLASS_HEADING_DEG[1]
+        )
+        mission.orbit = SearchThenLoseOrbit()
+        mission.approach = SearchThenRunApproach()
+        mission.approach.search_emitted = True
+        pose = (0.0, 0.0, 0.0)
+
+        searching = mission.step(None, pose, tof_distance_mm=300.0)
+
+        self.assertEqual(searching.reason, "approach_spin_search")
+        self.assertEqual(mission.state, MainTaskState.APPROACH_SEARCH)
+        self.assertEqual(mission.locked_class_id, 0)
+        self.assertIsNone(mission.target_heading_rad)
+        self.assertEqual(vision.unlocked, 1)
+
+        new_target = {
+            "found": True,
+            "x": 160.0,
+            "y": 100.0,
+            "class_id": 4,
+        }
+        reacquired = mission.step(new_target, pose, tof_distance_mm=300.0)
+
+        self.assertEqual(reacquired.reason, "approach_reacquired")
+        self.assertEqual(mission.state, MainTaskState.APPROACH)
+        self.assertEqual(mission.locked_class_id, 4)
+        self.assertEqual(vision.locked_ids, [4])
 
     def _mission_in_approach(self, pose=(0.0, 0.0, 0.0)):
         vision = FakeVision()
@@ -235,10 +284,22 @@ class ApproachReacquireAnyIdTests(unittest.TestCase):
             (220.0, 80.0, 180.0),
         )
 
-        # Advance through points 5 and 6; the cyclic navigator must wrap to 1.
+        # Advance through points 5 to 8; the cyclic navigator must wrap to 1.
         mission.approach_search.patrol.advance(220.0, 80.0)
         self.assertEqual(mission.approach_search.patrol.index, 5)
         mission.approach_search.patrol.advance(220.0, 160.0)
+        self.assertEqual(mission.approach_search.patrol.index, 6)
+        self.assertEqual(
+            mission.approach_search.patrol.current_waypoint(),
+            (120.0, 180.0, -90.0),
+        )
+        mission.approach_search.patrol.advance(120.0, 180.0)
+        self.assertEqual(mission.approach_search.patrol.index, 7)
+        self.assertEqual(
+            mission.approach_search.patrol.current_waypoint(),
+            (200.0, 180.0, -90.0),
+        )
+        mission.approach_search.patrol.advance(200.0, 180.0)
         self.assertEqual(mission.approach_search.patrol.index, 0)
         self.assertEqual(
             mission.approach_search.patrol.current_waypoint(),
