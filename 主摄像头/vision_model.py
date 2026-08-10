@@ -53,6 +53,72 @@ ASSOC_MIN_DISTANCE = 35
 # 忽略该帧的砖块，避免将红沙包坐标作为障碍物发送。
 BRICK_RED_BAG_REJECT_DISTANCE_PX = 25
 
+# 砖块避障区域，使用主摄原始 160x120 像素坐标。
+# 左右两条直线向屏幕边缘延伸，再与屏幕边界闭合成区域。
+CAMERA_MAX_X = 159
+CAMERA_MAX_Y = 119
+BRICK_HAZARD_LEFT_LINE = ((34, 13), (4, 37))
+BRICK_HAZARD_RIGHT_LINE = ((107, 16), (136, 58))
+
+
+def line_x_at_y(point1, point2, y):
+    """计算直线在指定 y 坐标处的 x 坐标。"""
+    x1, y1 = point1
+    x2, y2 = point2
+    return x1 + (y - y1) * (x2 - x1) / float(y2 - y1)
+
+
+def line_y_at_x(point1, point2, x):
+    """计算直线在指定 x 坐标处的 y 坐标。"""
+    x1, y1 = point1
+    x2, y2 = point2
+    return y1 + (x - x1) * (y2 - y1) / float(x2 - x1)
+
+
+# 顺时针依次为：左线上边交点、右线上边交点、右线右边交点、
+# 屏幕右下角、屏幕左下角、左线左边交点。
+BRICK_HAZARD_REGION = (
+    (line_x_at_y(BRICK_HAZARD_LEFT_LINE[0], BRICK_HAZARD_LEFT_LINE[1], 0), 0),
+    (line_x_at_y(BRICK_HAZARD_RIGHT_LINE[0], BRICK_HAZARD_RIGHT_LINE[1], 0), 0),
+    (CAMERA_MAX_X, line_y_at_x(
+        BRICK_HAZARD_RIGHT_LINE[0], BRICK_HAZARD_RIGHT_LINE[1], CAMERA_MAX_X
+    )),
+    (CAMERA_MAX_X, CAMERA_MAX_Y),
+    (0, CAMERA_MAX_Y),
+    (0, line_y_at_x(BRICK_HAZARD_LEFT_LINE[0], BRICK_HAZARD_LEFT_LINE[1], 0)),
+)
+
+
+def point_in_convex_polygon(px, py, polygon):
+    """判断点是否位于凸多边形内部；落在边界上也视为内部。"""
+    has_positive = False
+    has_negative = False
+    point_count = len(polygon)
+
+    for index in range(point_count):
+        x1, y1 = polygon[index]
+        x2, y2 = polygon[(index + 1) % point_count]
+        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+
+        if cross > 0.000001:
+            has_positive = True
+        elif cross < -0.000001:
+            has_negative = True
+
+        if has_positive and has_negative:
+            return False
+
+    return True
+
+
+def is_brick_in_hazard_region(brick_blob):
+    """以砖块检测框中心点判断其是否属于危险区域。"""
+    if brick_blob is None:
+        return False
+    return point_in_convex_polygon(
+        brick_blob['cx'], brick_blob['cy'], BRICK_HAZARD_REGION
+    )
+
 def clamp(value, low, high):
     return max(low, min(value, high))
 
@@ -136,7 +202,7 @@ class Tracker:
             }
             
             if mapped_name == "brick":
-                if enable_car_brick:
+                if enable_car_brick and is_brick_in_hazard_region(candidate):
                     if brick_blob is None or score > brick_blob['score']:
                         brick_blob = candidate
             else:

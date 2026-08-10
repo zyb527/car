@@ -1,11 +1,12 @@
 # main.py
 import sensor, image, time, machine
-from vision_model import Tracker, CLASS_IDS, COLORS
+from vision_model import Tracker, CLASS_IDS, COLORS, BRICK_HAZARD_REGION
 from vision_classic import detect_yellow_border
 
 # ================= 资源配置 =================
 SHOW_TEXT_ENABLED = True
 LCD_DISPLAY_ENABLED =True
+SHOW_BRICK_HAZARD_REGION = True
 
 # ================= ID 定义 =================
 CLASS_ID_YELLOW = 6
@@ -155,6 +156,18 @@ while True:
     # === 4. 绘图与反馈 ===
     # === 4. 绘图与反馈 ===
     # 绘制 Target 候选框
+    # 四边形仅用于辅助显示，关闭显示不会影响范围判断和串口发送。
+    if SHOW_BRICK_HAZARD_REGION:
+        for point_index in range(len(BRICK_HAZARD_REGION)):
+            x1, y1 = BRICK_HAZARD_REGION[point_index]
+            x2, y2 = BRICK_HAZARD_REGION[
+                (point_index + 1) % len(BRICK_HAZARD_REGION)
+            ]
+            img.draw_line(
+                int(x1), int(y1), int(x2), int(y2),
+                color=(255, 165, 0), thickness=1
+            )
+
     if shown_candidate:
         color = COLORS.get(tracker.lock_name, (255, 0, 0))
         img.draw_rectangle((shown_candidate['x'], shown_candidate['y'], shown_candidate['w'], shown_candidate['h']), color=color, thickness=2)
